@@ -1,147 +1,162 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
+const cors = require('cors');
+const prisma = require('./shared/db/prisma');
 
 const app = express();
-const prisma = new PrismaClient();
+const PORT = process.env.PORT || 3000;
 
-// ============================================
+// ==========================================
 // MIDDLEWARE
-// ============================================
+// ==========================================
 
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
+// Request logging
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path}`);
   next();
 });
 
-// ============================================
-// ROUTES
-// ============================================
+// ==========================================
+// HEALTH CHECK ROUTES
+// ==========================================
 
-// Health Check
 app.get('/api/health', (req, res) => {
-  res.status(200).json({
+  res.json({
     status: 'ok',
     message: 'Server is running',
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString()
   });
 });
 
-// Database Health Check
 app.get('/api/health/db', async (req, res) => {
   try {
-    // Try to query the database
-    const result = await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    
+    res.json({
       status: 'ok',
       message: 'Database connection is working',
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(500).json({
       status: 'error',
       message: 'Database connection failed',
       error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// Root API info
 app.get('/api', (req, res) => {
-  res.status(200).json({
-    name: 'Dynamic ERP Lite API',
+  res.json({
+    status: 'ok',
+    message: 'Dynamic ERP Lite API',
     version: '1.0.0',
-    description: 'Cloud-based ERP system for traditional businesses and UMKM',
+    environment: process.env.NODE_ENV || 'development',
     endpoints: {
-      health: '/api/health',
-      database: '/api/health/db',
-      inventory: '/api/inventory',
-      purchasing: '/api/purchasing',
-      sales: '/api/sales',
-      accounting: '/api/accounting',
-    },
+      health: {
+        GET: '/api/health',
+        GET_DB: '/api/health/db'
+      },
+      inventory: {
+        GET_ITEMS: 'GET /api/inventory/items',
+        CREATE_ITEM: 'POST /api/inventory/items',
+        GET_ITEM: 'GET /api/inventory/items/:id',
+        UPDATE_ITEM: 'PUT /api/inventory/items/:id',
+        DELETE_ITEM: 'DELETE /api/inventory/items/:id'
+      }
+    }
   });
 });
 
-// ============================================
-// MODULE ROUTES (akan di-import di sini)
-// ============================================
+// ==========================================
+// IMPORT MODULE ROUTES
+// ==========================================
 
-// TODO: Import dan gunakan module routes
-// const inventoryRoutes = require('./modules/inventory/routes');
-// const purchasingRoutes = require('./modules/purchasing/routes');
-// const salesRoutes = require('./modules/sales/routes');
-// const accountingRoutes = require('./modules/accounting/routes');
+const inventoryRoutes = require('./modules/inventory/routes');
 
-// app.use('/api/inventory', inventoryRoutes);
-// app.use('/api/purchasing', purchasingRoutes);
-// app.use('/api/sales', salesRoutes);
-// app.use('/api/accounting', accountingRoutes);
+// ==========================================
+// REGISTER MODULE ROUTES
+// ==========================================
 
-// ============================================
-// ERROR HANDLING
-// ============================================
+app.use('/api/inventory', inventoryRoutes);
 
-// 404 handler
+// ==========================================
+// 404 HANDLER
+// ==========================================
+
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
     message: 'Endpoint not found',
     path: req.path,
+    method: req.method
   });
 });
 
-// Error handling middleware
+// ==========================================
+// ERROR HANDLER
+// ==========================================
+
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
+  console.error(err);
+  res.status(500).json({
     status: 'error',
-    message: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// ============================================
+// ==========================================
 // SERVER STARTUP
-// ============================================
+// ==========================================
 
-const PORT = process.env.PORT || 3000;
+const startServer = async () => {
+  try {
+    // Test database connection
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('✓ Database connected');
+  } catch (error) {
+    console.error('✗ Database connection failed:', error.message);
+    process.exit(1);
+  }
 
-const server = app.listen(PORT, () => {
-  console.log(`
-╔═══════════════════════════════════════╗
-║   Dynamic ERP Lite - Backend Server   ║
-╚═══════════════════════════════════════╝
-
-📌 Server running at: http://localhost:${PORT}
-🔍 Health Check: http://localhost:${PORT}/api/health
-💾 Database: http://localhost:${PORT}/api/health/db
-
-Environment: ${process.env.NODE_ENV || 'development'}
-Ready to handle requests... ✓
-  `);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(async () => {
-    await prisma.$disconnect();
-    console.log('HTTP server closed');
-    process.exit(0);
+  const server = app.listen(PORT, () => {
+    console.log('╔═══════════════════════════════════════╗');
+    console.log('║   Dynamic ERP Lite - Backend Server   ║');
+    console.log('╚═══════════════════════════════════════╝');
+    console.log(`📌 Server running at: http://localhost:${PORT}`);
+    console.log(`🔍 Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`💾 Database: http://localhost:${PORT}/api/health/db`);
+    console.log(`📚 API Info: http://localhost:${PORT}/api`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('Ready to handle requests... ✓');
   });
-});
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  server.close(async () => {
-    await prisma.$disconnect();
-    console.log('HTTP server closed');
-    process.exit(0);
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    server.close(async () => {
+      await prisma.$disconnect();
+      process.exit(0);
+    });
   });
-});
+
+  process.on('SIGINT', () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    server.close(async () => {
+      await prisma.$disconnect();
+      process.exit(0);
+    });
+  });
+};
+
+// Start server
+startServer();
 
 module.exports = app;

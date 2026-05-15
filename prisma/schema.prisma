@@ -27,6 +27,7 @@ model ChartOfAccounts {
 
   // Relations
   journalLines JournalLine[]
+  generalLedger GeneralLedger[]
 
   @@map("chart_of_accounts")
 }
@@ -232,6 +233,7 @@ model Journal {
 
   // Relations
   lines         JournalLine[]
+  generalLedger GeneralLedger[]
   purchaseOrder PurchaseOrder? @relation("purchase_order_journal", fields: [poId], references: [id])
   poId          String?  @unique
   salesInvoice  SalesInvoice? @relation("sales_invoice_journal", fields: [invoiceId], references: [id])
@@ -263,10 +265,10 @@ model JournalLine {
 // General Ledger (Posting results)
 model GeneralLedger {
   id             String   @id @default(cuid())
-  account        ChartOfAccounts @relation(fields: [accountId], references: [id])
   accountId      String
-  journal        Journal  @relation(fields: [journalId], references: [id])
+  account        ChartOfAccounts @relation(fields: [accountId], references: [id])
   journalId      String
+  journal        Journal  @relation(fields: [journalId], references: [id])
   date           DateTime
   description    String?
   debit          Float    @default(0)
