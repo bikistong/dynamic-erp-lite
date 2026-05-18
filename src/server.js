@@ -47,6 +47,15 @@ app.get('/api', (req, res) => {
     message: 'Dynamic ERP Lite API',
     version: '1.0.0',
     modules: {
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        me: 'GET /api/auth/me',
+        changePassword: 'PUT /api/auth/me/password',
+        users: 'GET /api/auth/users (admin)',
+        updateUser: 'PUT /api/auth/users/:id (admin)',
+      },
+      dashboard: { summary: 'GET /api/dashboard/summary' },
       inventory: {
         items: 'GET/POST /api/inventory/items',
         item: 'GET/PUT/DELETE /api/inventory/items/:id',
@@ -88,11 +97,15 @@ app.get('/api', (req, res) => {
   });
 });
 
+const authRoutes = require('./modules/auth/routes');
+const dashboardRoutes = require('./modules/dashboard/routes');
 const inventoryRoutes = require('./modules/inventory/routes');
 const purchasingRoutes = require('./modules/purchasing/routes');
 const salesRoutes = require('./modules/sales/routes');
 const accountingRoutes = require('./modules/accounting/routes');
 
+app.use('/api/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/purchasing', purchasingRoutes);
 app.use('/api/sales', salesRoutes);

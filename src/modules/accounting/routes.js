@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../../shared/db/prisma');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
+const { authenticate, requireAdmin } = require('../../shared/middleware/auth');
+const { parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
+
+router.use(authenticate);
 
 // ============================================
 // CHART OF ACCOUNTS
@@ -10,6 +14,7 @@ const { createJournal, postJournal } = require('../../shared/journal/journalEngi
 router.get('/accounts', async (req, res) => {
   try {
     const { type, active, search } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (type) where.type = type;
     if (active !== undefined) where.active = active === 'true';
@@ -19,8 +24,11 @@ router.get('/accounts', async (req, res) => {
         { code: { contains: search, mode: 'insensitive' } },
       ];
     }
-    const accounts = await prisma.chartOfAccounts.findMany({ where, orderBy: { code: 'asc' } });
-    res.json({ status: 'ok', data: accounts, total: accounts.length });
+    const [accounts, total] = await Promise.all([
+      prisma.chartOfAccounts.findMany({ where, orderBy: { code: 'asc' }, skip, take }),
+      prisma.chartOfAccounts.count({ where }),
+    ]);
+    res.json(paginatedResponse(accounts, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -78,8 +86,8 @@ router.delete('/accounts/:id', async (req, res) => {
   }
 });
 
-// Seed default chart of accounts
-router.post('/accounts/seed', async (req, res) => {
+// Seed default chart of accounts (admin only)
+router.post('/accounts/seed', requireAdmin, async (req, res) => {
   try {
     const defaultAccounts = [
       // Assets
@@ -136,6 +144,7 @@ router.post('/accounts/seed', async (req, res) => {
 router.get('/journals', async (req, res) => {
   try {
     const { status, type, startDate, endDate } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (status) where.status = status;
     if (type) where.type = type;
@@ -144,14 +153,17 @@ router.get('/journals', async (req, res) => {
       if (startDate) where.date.gte = new Date(startDate);
       if (endDate) where.date.lte = new Date(endDate);
     }
-    const journals = await prisma.journal.findMany({
-      where,
-      include: {
-        lines: { include: { account: { select: { code: true, name: true } } } },
-      },
-      orderBy: { date: 'desc' },
-    });
-    res.json({ status: 'ok', data: journals, total: journals.length });
+    const [journals, total] = await Promise.all([
+      prisma.journal.findMany({
+        where,
+        include: { lines: { include: { account: { select: { code: true, name: true } } } } },
+        orderBy: { date: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.journal.count({ where }),
+    ]);
+    res.json(paginatedResponse(journals, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -204,6 +216,7 @@ router.put('/journals/:id/post', async (req, res) => {
 router.get('/ledger', async (req, res) => {
   try {
     const { accountId, accountCode, startDate, endDate } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (accountId) {
       where.accountId = accountId;
@@ -217,15 +230,20 @@ router.get('/ledger', async (req, res) => {
       if (startDate) where.date.gte = new Date(startDate);
       if (endDate) where.date.lte = new Date(endDate);
     }
-    const entries = await prisma.generalLedger.findMany({
-      where,
-      include: {
-        account: { select: { code: true, name: true, type: true } },
-        journal: { select: { journalNo: true, description: true, reference: true } },
-      },
-      orderBy: { date: 'asc' },
-    });
-    res.json({ status: 'ok', data: entries, total: entries.length });
+    const [entries, total] = await Promise.all([
+      prisma.generalLedger.findMany({
+        where,
+        include: {
+          account: { select: { code: true, name: true, type: true } },
+          journal: { select: { journalNo: true, description: true, reference: true } },
+        },
+        orderBy: { date: 'asc' },
+        skip,
+        take,
+      }),
+      prisma.generalLedger.count({ where }),
+    ]);
+    res.json(paginatedResponse(entries, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }

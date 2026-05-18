@@ -102,6 +102,35 @@ function errorResponse(statusCode, message, error = null) {
   };
 }
 
+/**
+ * Parse pagination params from query string
+ * @param {Object} query - req.query
+ * @returns {{ skip: number, take: number, page: number, limit: number }}
+ */
+function parsePagination(query) {
+  const page = Math.max(1, parseInt(query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit) || 20));
+  return { skip: (page - 1) * limit, take: limit, page, limit };
+}
+
+/**
+ * Build paginated response envelope
+ */
+function paginatedResponse(data, total, page, limit) {
+  return {
+    status: 'ok',
+    data,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasNext: page * limit < total,
+      hasPrev: page > 1,
+    },
+  };
+}
+
 module.exports = {
   generateTransactionNo,
   formatCurrency,
@@ -111,4 +140,6 @@ module.exports = {
   isValidPhone,
   apiResponse,
   errorResponse,
+  parsePagination,
+  paginatedResponse,
 };

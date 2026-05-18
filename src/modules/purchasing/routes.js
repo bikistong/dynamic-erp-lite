@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../../shared/db/prisma');
-const { generateTransactionNo } = require('../../shared/utils/helpers');
+const { generateTransactionNo, parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
+const { authenticate } = require('../../shared/middleware/auth');
+
+router.use(authenticate);
 
 // ============================================
 // SUPPLIERS
@@ -11,6 +14,7 @@ const { createJournal, postJournal } = require('../../shared/journal/journalEngi
 router.get('/suppliers', async (req, res) => {
   try {
     const { search, active } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (search) {
       where.OR = [
@@ -19,8 +23,11 @@ router.get('/suppliers', async (req, res) => {
       ];
     }
     if (active !== undefined) where.active = active === 'true';
-    const suppliers = await prisma.supplier.findMany({ where, orderBy: { name: 'asc' } });
-    res.json({ status: 'ok', data: suppliers, total: suppliers.length });
+    const [suppliers, total] = await Promise.all([
+      prisma.supplier.findMany({ where, orderBy: { name: 'asc' }, skip, take }),
+      prisma.supplier.count({ where }),
+    ]);
+    res.json(paginatedResponse(suppliers, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -86,15 +93,21 @@ router.delete('/suppliers/:id', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const { status, supplierId } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (status) where.status = status;
     if (supplierId) where.supplierId = supplierId;
-    const orders = await prisma.purchaseOrder.findMany({
-      where,
-      include: { supplier: { select: { name: true } }, lines: { include: { item: { select: { name: true, uom: true } } } } },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json({ status: 'ok', data: orders, total: orders.length });
+    const [orders, total] = await Promise.all([
+      prisma.purchaseOrder.findMany({
+        where,
+        include: { supplier: { select: { name: true } }, lines: { include: { item: { select: { name: true, uom: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.purchaseOrder.count({ where }),
+    ]);
+    res.json(paginatedResponse(orders, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -198,13 +211,19 @@ router.put('/orders/:id/cancel', async (req, res) => {
 router.get('/receipts', async (req, res) => {
   try {
     const { status } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = status ? { status } : {};
-    const receipts = await prisma.purchaseReceipt.findMany({
-      where,
-      include: { stockMovements: { include: { item: { select: { name: true, uom: true } } } } },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json({ status: 'ok', data: receipts, total: receipts.length });
+    const [receipts, total] = await Promise.all([
+      prisma.purchaseReceipt.findMany({
+        where,
+        include: { stockMovements: { include: { item: { select: { name: true, uom: true } } } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.purchaseReceipt.count({ where }),
+    ]);
+    res.json(paginatedResponse(receipts, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }

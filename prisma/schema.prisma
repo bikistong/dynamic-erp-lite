@@ -12,6 +12,23 @@ datasource db {
 }
 
 // ============================================
+// AUTH MODELS
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("staff") // admin, staff
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ============================================
 // MASTER DATA MODELS
 // ============================================
 
