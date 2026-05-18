@@ -6,7 +6,7 @@ const { createJournal, postJournal } = require('../../shared/journal/journalEngi
 const { authenticate } = require('../../shared/middleware/auth');
 const { validate, rules } = require('../../shared/utils/validate');
 
-const { required, string, number, integer, min, minLen, maxLen, date, boolean, email, array, minItems } = rules;
+const { required, string, number, integer, min, max, minLen, maxLen, date, boolean, email, array, minItems } = rules;
 
 router.use(authenticate);
 
@@ -165,6 +165,7 @@ router.post(
     customerId: [required, string],
     date: [required, date],
     dueDate: [date],
+    taxRate: [number, min(0), max(100)],
     notes: [string, maxLen(500)],
     lines: [required, array, minItems(1)],
     'lines.*.itemId': [required, string],
@@ -172,18 +173,23 @@ router.post(
     'lines.*.unitPrice': [required, number, min(0)],
   }),
   async (req, res) => {
-  try {
-    const { customerId, date: dateVal, dueDate, notes, lines } = req.body;
+    try {
+      const { customerId, date: dateVal, dueDate, taxRate = 11, notes, lines } = req.body;
 
-    const result = await prisma.$transaction(async (tx) => {
-      const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
-      const invoice = await tx.salesInvoice.create({
+      const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+      const taxAmount = Math.round(subtotal * taxRate) / 100;
+      const totalAmount = subtotal + taxAmount;
+
+      const invoice = await prisma.salesInvoice.create({
         data: {
           invoiceNo: generateTransactionNo('INV'),
           customerId,
           date: new Date(dateVal),
           dueDate: dueDate ? new Date(dueDate) : null,
           status: 'draft',
+          subtotal,
+          taxRate,
+          taxAmount,
           totalAmount,
           notes,
           lines: {
@@ -200,17 +206,15 @@ router.post(
           lines: { include: { item: { select: { name: true, uom: true } } } },
         },
       });
-      return invoice;
-    });
 
-    res.status(201).json({ status: 'ok', data: result });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+      res.status(201).json({ status: 'ok', data: invoice });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
 );
 
-// Post invoice — deducts stock and creates accounting journal
+// Post invoice — deducts stock + double-entry journal including PPN
 router.put('/invoices/:id/post', async (req, res) => {
   try {
     const invoice = await prisma.salesInvoice.findUnique({
@@ -232,7 +236,7 @@ router.put('/invoices/:id/post', async (req, res) => {
       }
     }
 
-    // Deduct stock and create movements
+    // Deduct stock and mark posted
     await prisma.$transaction(async (tx) => {
       for (const line of invoice.lines) {
         await tx.stockMovement.create({
@@ -253,26 +257,34 @@ router.put('/invoices/:id/post', async (req, res) => {
       await tx.salesInvoice.update({ where: { id: req.params.id }, data: { status: 'posted' } });
     });
 
-    // Calculate COGS
     const cogsTotal = invoice.lines.reduce((sum, l) => sum + l.quantity * l.item.purchasePrice, 0);
 
-    // Journal entries:
-    // 1. AR (1200) debit, Revenue (4100) credit — for the sale
-    // 2. COGS (5100) debit, Inventory (1300) credit — for cost of goods sold
+    // Journal entries (with PPN):
+    // Debit  AR         (1200) = totalAmount (subtotal + PPN)
+    // Credit Revenue    (4100) = subtotal
+    // Credit Tax Payable(2200) = taxAmount   ← PPN terutang
+    // Debit  COGS       (5100) = cogsTotal   (if any)
+    // Credit Inventory  (1300) = cogsTotal
     try {
       const journalLines = [
-        { accountCode: '1200', debit: invoice.totalAmount, credit: 0, description: 'Accounts receivable' },
-        { accountCode: '4100', debit: 0, credit: invoice.totalAmount, description: 'Sales revenue' },
+        { accountCode: '1200', debit: invoice.totalAmount, credit: 0, description: 'Accounts receivable (incl. PPN)' },
+        { accountCode: '4100', debit: 0, credit: invoice.subtotal, description: 'Sales revenue (DPP)' },
       ];
+      if (invoice.taxAmount > 0) {
+        journalLines.push(
+          { accountCode: '2200', debit: 0, credit: invoice.taxAmount, description: `PPN ${invoice.taxRate}% terutang` }
+        );
+      }
       if (cogsTotal > 0) {
         journalLines.push(
           { accountCode: '5100', debit: cogsTotal, credit: 0, description: 'Cost of goods sold' },
           { accountCode: '1300', debit: 0, credit: cogsTotal, description: 'Inventory reduction' }
         );
       }
+
       const journal = await createJournal({
-        date: new Date().toISOString(),
-        description: `Sales invoice ${invoice.invoiceNo}`,
+        date: invoice.date.toISOString(),
+        description: `Sales invoice ${invoice.invoiceNo} (PPN ${invoice.taxRate}%)`,
         type: 'auto',
         reference: invoice.invoiceNo,
         referenceType: 'sales',
@@ -283,7 +295,6 @@ router.put('/invoices/:id/post', async (req, res) => {
         where: { id: req.params.id },
         data: { journal: { connect: { id: journal.id } } },
       });
-
       await postJournal(journal.id);
     } catch (journalErr) {
       console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
@@ -291,7 +302,11 @@ router.put('/invoices/:id/post', async (req, res) => {
 
     const updated = await prisma.salesInvoice.findUnique({
       where: { id: req.params.id },
-      include: { customer: { select: { name: true } }, lines: { include: { item: { select: { name: true } } } } },
+      include: {
+        customer: { select: { name: true } },
+        lines: { include: { item: { select: { name: true, uom: true } } } },
+        journal: { include: { lines: { include: { account: { select: { code: true, name: true } } } } } },
+      },
     });
     res.json({ status: 'ok', data: updated });
   } catch (error) {
@@ -317,7 +332,7 @@ router.put('/invoices/:id/cancel', async (req, res) => {
   }
 });
 
-// Mark invoice as paid
+// Mark invoice as paid — Debit Cash (1100), Credit AR (1200)
 router.put('/invoices/:id/pay', async (req, res) => {
   try {
     const invoice = await prisma.salesInvoice.findUnique({ where: { id: req.params.id } });
@@ -325,12 +340,9 @@ router.put('/invoices/:id/pay', async (req, res) => {
     if (invoice.status !== 'posted') {
       return res.status(400).json({ status: 'error', message: 'Only posted invoices can be marked as paid' });
     }
-    const updated = await prisma.salesInvoice.update({
-      where: { id: req.params.id },
-      data: { status: 'paid' },
-    });
 
-    // Journal: Debit Cash (1100), Credit AR (1200)
+    await prisma.salesInvoice.update({ where: { id: req.params.id }, data: { status: 'paid' } });
+
     try {
       const journal = await createJournal({
         date: new Date().toISOString(),
@@ -339,7 +351,7 @@ router.put('/invoices/:id/pay', async (req, res) => {
         reference: invoice.invoiceNo,
         referenceType: 'payment',
         lines: [
-          { accountCode: '1100', debit: invoice.totalAmount, credit: 0, description: 'Cash received' },
+          { accountCode: '1100', debit: invoice.totalAmount, credit: 0, description: 'Cash received (incl. PPN)' },
           { accountCode: '1200', debit: 0, credit: invoice.totalAmount, description: 'AR cleared' },
         ],
       });
@@ -348,7 +360,51 @@ router.put('/invoices/:id/pay', async (req, res) => {
       console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
     }
 
+    const updated = await prisma.salesInvoice.findUnique({ where: { id: req.params.id } });
     res.json({ status: 'ok', data: updated });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// PPN Summary — laporan PPN terutang per periode
+router.get('/ppn-summary', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const where = { status: { in: ['posted', 'paid'] } };
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
+    }
+
+    const invoices = await prisma.salesInvoice.findMany({
+      where,
+      select: {
+        invoiceNo: true, date: true, status: true,
+        subtotal: true, taxRate: true, taxAmount: true, totalAmount: true,
+        customer: { select: { name: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const totalDPP = invoices.reduce((sum, inv) => sum + inv.subtotal, 0);
+    const totalPPN = invoices.reduce((sum, inv) => sum + inv.taxAmount, 0);
+    const totalTagihan = invoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+
+    res.json({
+      status: 'ok',
+      data: {
+        invoices,
+        summary: {
+          count: invoices.length,
+          totalDPP,
+          totalPPN,
+          totalTagihan,
+          period: { startDate: startDate || null, endDate: endDate || null },
+        },
+      },
+    });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }

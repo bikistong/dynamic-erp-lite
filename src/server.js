@@ -83,6 +83,7 @@ app.get('/api', (req, res) => {
         postInvoice: 'PUT /api/sales/invoices/:id/post',
         payInvoice: 'PUT /api/sales/invoices/:id/pay',
         cancelInvoice: 'PUT /api/sales/invoices/:id/cancel',
+        ppnSummary: 'GET /api/sales/ppn-summary',
       },
       accounting: {
         accounts: 'GET/POST /api/accounting/accounts',
