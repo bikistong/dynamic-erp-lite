@@ -45,12 +45,58 @@ app.get('/api', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Dynamic ERP Lite API',
-    version: '1.0.0'
+    version: '1.0.0',
+    modules: {
+      inventory: {
+        items: 'GET/POST /api/inventory/items',
+        item: 'GET/PUT/DELETE /api/inventory/items/:id',
+        stockMovements: 'GET /api/inventory/stock-movements',
+        adjustment: 'POST /api/inventory/stock-adjustments',
+      },
+      purchasing: {
+        suppliers: 'GET/POST /api/purchasing/suppliers',
+        supplier: 'GET/PUT/DELETE /api/purchasing/suppliers/:id',
+        orders: 'GET/POST /api/purchasing/orders',
+        order: 'GET /api/purchasing/orders/:id',
+        submitOrder: 'PUT /api/purchasing/orders/:id/submit',
+        cancelOrder: 'PUT /api/purchasing/orders/:id/cancel',
+        receipts: 'GET/POST /api/purchasing/receipts',
+        receipt: 'GET /api/purchasing/receipts/:id',
+      },
+      sales: {
+        customers: 'GET/POST /api/sales/customers',
+        customer: 'GET/PUT/DELETE /api/sales/customers/:id',
+        invoices: 'GET/POST /api/sales/invoices',
+        invoice: 'GET /api/sales/invoices/:id',
+        postInvoice: 'PUT /api/sales/invoices/:id/post',
+        payInvoice: 'PUT /api/sales/invoices/:id/pay',
+        cancelInvoice: 'PUT /api/sales/invoices/:id/cancel',
+      },
+      accounting: {
+        accounts: 'GET/POST /api/accounting/accounts',
+        account: 'GET/PUT/DELETE /api/accounting/accounts/:id',
+        seedAccounts: 'POST /api/accounting/accounts/seed',
+        journals: 'GET/POST /api/accounting/journals',
+        journal: 'GET /api/accounting/journals/:id',
+        postJournal: 'PUT /api/accounting/journals/:id/post',
+        ledger: 'GET /api/accounting/ledger',
+        trialBalance: 'GET /api/accounting/reports/trial-balance',
+        profitLoss: 'GET /api/accounting/reports/profit-loss',
+        balanceSheet: 'GET /api/accounting/reports/balance-sheet',
+      },
+    }
   });
 });
 
 const inventoryRoutes = require('./modules/inventory/routes');
+const purchasingRoutes = require('./modules/purchasing/routes');
+const salesRoutes = require('./modules/sales/routes');
+const accountingRoutes = require('./modules/accounting/routes');
+
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/purchasing', purchasingRoutes);
+app.use('/api/sales', salesRoutes);
+app.use('/api/accounting', accountingRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
