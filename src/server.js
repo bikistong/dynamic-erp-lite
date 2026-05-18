@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./shared/swagger/spec');
 const prisma = require('./shared/db/prisma');
 
 const app = express();
@@ -8,6 +10,11 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'Dynamic ERP Lite — API Docs',
+  swaggerOptions: { persistAuthorization: true },
+}));
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();

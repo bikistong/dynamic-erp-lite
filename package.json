@@ -25,7 +25,9 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
