@@ -4,6 +4,9 @@ const prisma = require('../../shared/db/prisma');
 const { generateTransactionNo, parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
 const { authenticate } = require('../../shared/middleware/auth');
+const { validate, rules } = require('../../shared/utils/validate');
+
+const { required, string, number, integer, min, minLen, maxLen, date, boolean, email, array, minItems } = rules;
 
 router.use(authenticate);
 
@@ -46,35 +49,57 @@ router.get('/suppliers/:id', async (req, res) => {
   }
 });
 
-router.post('/suppliers', async (req, res) => {
-  try {
-    const { name, email, phone, address, city, province, postalCode } = req.body;
-    if (!name) return res.status(400).json({ status: 'error', message: 'name is required' });
-    const supplier = await prisma.supplier.create({
-      data: { name, email, phone, address, city, province, postalCode },
-    });
-    res.status(201).json({ status: 'ok', data: supplier });
-  } catch (error) {
-    if (error.code === 'P2002') {
-      return res.status(400).json({ status: 'error', message: 'Email already exists' });
+router.post(
+  '/suppliers',
+  validate({
+    name: [required, string, minLen(2), maxLen(200)],
+    email: [email],
+    phone: [string, maxLen(20)],
+    address: [string, maxLen(300)],
+    city: [string, maxLen(100)],
+    province: [string, maxLen(100)],
+    postalCode: [string, maxLen(10)],
+  }),
+  async (req, res) => {
+    try {
+      const { name, email: emailVal, phone, address, city, province, postalCode } = req.body;
+      const supplier = await prisma.supplier.create({
+        data: { name, email: emailVal, phone, address, city, province, postalCode },
+      });
+      res.status(201).json({ status: 'ok', data: supplier });
+    } catch (error) {
+      if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Email already exists' });
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
-router.put('/suppliers/:id', async (req, res) => {
-  try {
-    const { name, email, phone, address, city, province, postalCode, active } = req.body;
-    const supplier = await prisma.supplier.update({
-      where: { id: req.params.id },
-      data: { name, email, phone, address, city, province, postalCode, active },
-    });
-    res.json({ status: 'ok', data: supplier });
-  } catch (error) {
-    if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Supplier not found' });
-    res.status(500).json({ status: 'error', message: error.message });
+router.put(
+  '/suppliers/:id',
+  validate({
+    name: [string, minLen(2), maxLen(200)],
+    email: [email],
+    phone: [string, maxLen(20)],
+    address: [string, maxLen(300)],
+    city: [string, maxLen(100)],
+    province: [string, maxLen(100)],
+    postalCode: [string, maxLen(10)],
+    active: [boolean],
+  }),
+  async (req, res) => {
+    try {
+      const { name, email: emailVal, phone, address, city, province, postalCode, active } = req.body;
+      const supplier = await prisma.supplier.update({
+        where: { id: req.params.id },
+        data: { name, email: emailVal, phone, address, city, province, postalCode, active },
+      });
+      res.json({ status: 'ok', data: supplier });
+    } catch (error) {
+      if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Supplier not found' });
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
-});
+);
 
 router.delete('/suppliers/:id', async (req, res) => {
   try {
@@ -130,45 +155,51 @@ router.get('/orders/:id', async (req, res) => {
   }
 });
 
-router.post('/orders', async (req, res) => {
-  try {
-    const { supplierId, date, dueDate, notes, lines } = req.body;
-    if (!supplierId || !date || !lines || lines.length === 0) {
-      return res.status(400).json({ status: 'error', message: 'supplierId, date, and lines are required' });
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
-      const order = await tx.purchaseOrder.create({
-        data: {
-          poNumber: generateTransactionNo('PO'),
-          supplierId,
-          date: new Date(date),
-          dueDate: dueDate ? new Date(dueDate) : null,
-          status: 'draft',
-          totalAmount,
-          notes,
-          lines: {
-            create: lines.map((l) => ({
-              itemId: l.itemId,
-              quantity: l.quantity,
-              unitPrice: l.unitPrice,
-              totalAmount: l.quantity * l.unitPrice,
-            })),
+router.post(
+  '/orders',
+  validate({
+    supplierId: [required, string],
+    date: [required, date],
+    dueDate: [date],
+    notes: [string, maxLen(500)],
+    lines: [required, array, minItems(1)],
+    'lines.*.itemId': [required, string],
+    'lines.*.quantity': [required, integer, min(1)],
+    'lines.*.unitPrice': [required, number, min(0)],
+  }),
+  async (req, res) => {
+    try {
+      const { supplierId, date: dateVal, dueDate, notes, lines } = req.body;
+      const result = await prisma.$transaction(async (tx) => {
+        const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+        return tx.purchaseOrder.create({
+          data: {
+            poNumber: generateTransactionNo('PO'),
+            supplierId,
+            date: new Date(dateVal),
+            dueDate: dueDate ? new Date(dueDate) : null,
+            status: 'draft',
+            totalAmount,
+            notes,
+            lines: {
+              create: lines.map((l) => ({
+                itemId: l.itemId,
+                quantity: l.quantity,
+                unitPrice: l.unitPrice,
+                totalAmount: l.quantity * l.unitPrice,
+              })),
+            },
           },
-        },
-        include: { lines: { include: { item: { select: { name: true, uom: true } } } }, supplier: { select: { name: true } } },
+          include: { lines: { include: { item: { select: { name: true, uom: true } } } }, supplier: { select: { name: true } } },
+        });
       });
-      return order;
-    });
-
-    res.status(201).json({ status: 'ok', data: result });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+      res.status(201).json({ status: 'ok', data: result });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
-});
+);
 
-// Submit PO
 router.put('/orders/:id/submit', async (req, res) => {
   try {
     const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
@@ -176,17 +207,13 @@ router.put('/orders/:id/submit', async (req, res) => {
     if (order.status !== 'draft') {
       return res.status(400).json({ status: 'error', message: 'Only draft orders can be submitted' });
     }
-    const updated = await prisma.purchaseOrder.update({
-      where: { id: req.params.id },
-      data: { status: 'submitted' },
-    });
+    const updated = await prisma.purchaseOrder.update({ where: { id: req.params.id }, data: { status: 'submitted' } });
     res.json({ status: 'ok', data: updated });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
 });
 
-// Cancel PO
 router.put('/orders/:id/cancel', async (req, res) => {
   try {
     const order = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id } });
@@ -194,10 +221,7 @@ router.put('/orders/:id/cancel', async (req, res) => {
     if (order.status === 'received') {
       return res.status(400).json({ status: 'error', message: 'Received orders cannot be cancelled' });
     }
-    const updated = await prisma.purchaseOrder.update({
-      where: { id: req.params.id },
-      data: { status: 'cancelled' },
-    });
+    const updated = await prisma.purchaseOrder.update({ where: { id: req.params.id }, data: { status: 'cancelled' } });
     res.json({ status: 'ok', data: updated });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
@@ -245,103 +269,74 @@ router.get('/receipts/:id', async (req, res) => {
   }
 });
 
-// Create receipt (goods received) — updates stock + creates journal
-router.post('/receipts', async (req, res) => {
-  try {
-    const { poId, date, notes, lines } = req.body;
-    if (!poId || !date || !lines || lines.length === 0) {
-      return res.status(400).json({ status: 'error', message: 'poId, date, and lines are required' });
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      const po = await tx.purchaseOrder.findUnique({
-        where: { id: poId },
-        include: { supplier: true, lines: { include: { item: true } } },
-      });
-      if (!po) throw new Error('Purchase order not found');
-      if (!['submitted', 'received'].includes(po.status)) {
-        throw new Error('Purchase order must be in submitted status to receive');
-      }
-
-      // Create receipt
-      const receiptNo = generateTransactionNo('GRN');
-      const receipt = await tx.purchaseReceipt.create({
-        data: {
-          receiptNumber: receiptNo,
-          poNumber: po.poNumber,
-          date: new Date(date),
-          status: 'posted',
-          notes,
-        },
-      });
-
-      let totalReceived = 0;
-
-      // Create stock movements and update stock for each line received
-      for (const line of lines) {
-        const poLine = po.lines.find((l) => l.itemId === line.itemId);
-        if (!poLine) throw new Error(`Item ${line.itemId} is not in purchase order`);
-
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            type: 'in',
-            quantity: line.quantity,
-            reference: receiptNo,
-            referenceType: 'po',
-            notes: `Received from PO ${po.poNumber}`,
-            receiptId: receipt.id,
-          },
-        });
-
-        await tx.item.update({
-          where: { id: line.itemId },
-          data: { stock: { increment: line.quantity } },
-        });
-
-        await tx.purchaseOrderLine.update({
-          where: { id: poLine.id },
-          data: { receivedQty: { increment: line.quantity } },
-        });
-
-        totalReceived += line.quantity * poLine.unitPrice;
-      }
-
-      // Update PO status to received
-      await tx.purchaseOrder.update({ where: { id: poId }, data: { status: 'received' } });
-
-      return { receipt, totalReceived, poNumber: po.poNumber };
-    });
-
-    // Create accounting journal: Debit Inventory (1300), Credit AP (2100)
+router.post(
+  '/receipts',
+  validate({
+    poId: [required, string],
+    date: [required, date],
+    notes: [string, maxLen(500)],
+    lines: [required, array, minItems(1)],
+    'lines.*.itemId': [required, string],
+    'lines.*.quantity': [required, integer, min(1)],
+  }),
+  async (req, res) => {
     try {
-      const journal = await createJournal({
-        date: req.body.date,
-        description: `Goods received from PO ${result.poNumber} - Receipt ${result.receipt.receiptNumber}`,
-        type: 'auto',
-        reference: result.receipt.receiptNumber,
-        referenceType: 'receipt',
-        lines: [
-          { accountCode: '1300', debit: result.totalReceived, credit: 0, description: 'Stock received' },
-          { accountCode: '2100', debit: 0, credit: result.totalReceived, description: 'Accounts payable' },
-        ],
+      const { poId, date: dateVal, notes, lines } = req.body;
+      const result = await prisma.$transaction(async (tx) => {
+        const po = await tx.purchaseOrder.findUnique({
+          where: { id: poId },
+          include: { supplier: true, lines: { include: { item: true } } },
+        });
+        if (!po) throw new Error('Purchase order not found');
+        if (!['submitted', 'received'].includes(po.status)) {
+          throw new Error('Purchase order must be in submitted status to receive');
+        }
+
+        const receiptNo = generateTransactionNo('GRN');
+        const receipt = await tx.purchaseReceipt.create({
+          data: { receiptNumber: receiptNo, poNumber: po.poNumber, date: new Date(dateVal), status: 'posted', notes },
+        });
+
+        let totalReceived = 0;
+        for (const line of lines) {
+          const poLine = po.lines.find((l) => l.itemId === line.itemId);
+          if (!poLine) throw new Error(`Item ${line.itemId} is not in purchase order`);
+
+          await tx.stockMovement.create({
+            data: { itemId: line.itemId, type: 'in', quantity: line.quantity, reference: receiptNo, referenceType: 'po', notes: `Received from PO ${po.poNumber}`, receiptId: receipt.id },
+          });
+          await tx.item.update({ where: { id: line.itemId }, data: { stock: { increment: line.quantity } } });
+          await tx.purchaseOrderLine.update({ where: { id: poLine.id }, data: { receivedQty: { increment: line.quantity } } });
+          totalReceived += line.quantity * poLine.unitPrice;
+        }
+
+        await tx.purchaseOrder.update({ where: { id: poId }, data: { status: 'received' } });
+        return { receipt, totalReceived, poNumber: po.poNumber };
       });
 
-      await prisma.purchaseReceipt.update({
-        where: { id: result.receipt.id },
-        data: { journal: { connect: { id: journal.id } } },
-      });
+      try {
+        const journal = await createJournal({
+          date: req.body.date,
+          description: `Goods received from PO ${result.poNumber} - Receipt ${result.receipt.receiptNumber}`,
+          type: 'auto',
+          reference: result.receipt.receiptNumber,
+          referenceType: 'receipt',
+          lines: [
+            { accountCode: '1300', debit: result.totalReceived, credit: 0, description: 'Stock received' },
+            { accountCode: '2100', debit: 0, credit: result.totalReceived, description: 'Accounts payable' },
+          ],
+        });
+        await prisma.purchaseReceipt.update({ where: { id: result.receipt.id }, data: { journal: { connect: { id: journal.id } } } });
+        await postJournal(journal.id);
+      } catch (journalErr) {
+        console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
+      }
 
-      await postJournal(journal.id);
-    } catch (journalErr) {
-      // Journal creation is best-effort; log but don't fail the receipt
-      console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
+      res.status(201).json({ status: 'ok', data: result.receipt });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
     }
-
-    res.status(201).json({ status: 'ok', data: result.receipt });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
 module.exports = router;

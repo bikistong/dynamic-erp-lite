@@ -4,6 +4,9 @@ const prisma = require('../../shared/db/prisma');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
 const { authenticate, requireAdmin } = require('../../shared/middleware/auth');
 const { parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
+const { validate, rules } = require('../../shared/utils/validate');
+
+const { required, string, number, min, minLen, maxLen, date, boolean, array, minItems, enum: enumRule } = rules;
 
 router.use(authenticate);
 
@@ -44,37 +47,48 @@ router.get('/accounts/:id', async (req, res) => {
   }
 });
 
-router.post('/accounts', async (req, res) => {
-  try {
-    const { code, name, type, description } = req.body;
-    if (!code || !name || !type) {
-      return res.status(400).json({ status: 'error', message: 'code, name, and type are required' });
+router.post(
+  '/accounts',
+  validate({
+    code: [required, string, minLen(1), maxLen(20)],
+    name: [required, string, minLen(2), maxLen(200)],
+    type: [required, enumRule(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'])],
+    description: [string, maxLen(300)],
+  }),
+  async (req, res) => {
+    try {
+      const { code, name, type, description } = req.body;
+      const account = await prisma.chartOfAccounts.create({ data: { code, name, type, description } });
+      res.status(201).json({ status: 'ok', data: account });
+    } catch (error) {
+      if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Account code already exists' });
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    const validTypes = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ status: 'error', message: `type must be one of: ${validTypes.join(', ')}` });
-    }
-    const account = await prisma.chartOfAccounts.create({ data: { code, name, type, description } });
-    res.status(201).json({ status: 'ok', data: account });
-  } catch (error) {
-    if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Account code already exists' });
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
-router.put('/accounts/:id', async (req, res) => {
-  try {
-    const { name, type, description, active } = req.body;
-    const account = await prisma.chartOfAccounts.update({
-      where: { id: req.params.id },
-      data: { name, type, description, active },
-    });
-    res.json({ status: 'ok', data: account });
-  } catch (error) {
-    if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Account not found' });
-    res.status(500).json({ status: 'error', message: error.message });
+router.put(
+  '/accounts/:id',
+  validate({
+    name: [string, minLen(2), maxLen(200)],
+    type: [enumRule(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'])],
+    description: [string, maxLen(300)],
+    active: [boolean],
+  }),
+  async (req, res) => {
+    try {
+      const { name, type, description, active } = req.body;
+      const account = await prisma.chartOfAccounts.update({
+        where: { id: req.params.id },
+        data: { name, type, description, active },
+      });
+      res.json({ status: 'ok', data: account });
+    } catch (error) {
+      if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Account not found' });
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
-});
+);
 
 router.delete('/accounts/:id', async (req, res) => {
   try {
@@ -186,18 +200,27 @@ router.get('/journals/:id', async (req, res) => {
 });
 
 // Create manual journal
-router.post('/journals', async (req, res) => {
-  try {
-    const { date, description, lines } = req.body;
-    if (!date || !description || !lines || lines.length < 2) {
-      return res.status(400).json({ status: 'error', message: 'date, description, and at least 2 lines are required' });
+router.post(
+  '/journals',
+  validate({
+    date: [required, date],
+    description: [required, string, minLen(3), maxLen(300)],
+    lines: [required, array, minItems(2)],
+    'lines.*.accountCode': [required, string],
+    'lines.*.debit': [number, min(0)],
+    'lines.*.credit': [number, min(0)],
+    'lines.*.description': [string, maxLen(200)],
+  }),
+  async (req, res) => {
+    try {
+      const { date: dateVal, description, lines } = req.body;
+      const journal = await createJournal({ date: dateVal, description, type: 'manual', lines });
+      res.status(201).json({ status: 'ok', data: journal });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    const journal = await createJournal({ date, description, type: 'manual', lines });
-    res.status(201).json({ status: 'ok', data: journal });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
 // Post journal to general ledger
 router.put('/journals/:id/post', async (req, res) => {

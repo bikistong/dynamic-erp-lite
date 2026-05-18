@@ -4,6 +4,9 @@ const prisma = require('../../shared/db/prisma');
 const { generateTransactionNo, parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
 const { authenticate } = require('../../shared/middleware/auth');
+const { validate, rules } = require('../../shared/utils/validate');
+
+const { required, string, number, integer, min, minLen, maxLen, date, boolean, email, array, minItems } = rules;
 
 router.use(authenticate);
 
@@ -47,35 +50,57 @@ router.get('/customers/:id', async (req, res) => {
   }
 });
 
-router.post('/customers', async (req, res) => {
-  try {
-    const { name, email, phone, address, city, province, postalCode } = req.body;
-    if (!name) return res.status(400).json({ status: 'error', message: 'name is required' });
-    const customer = await prisma.customer.create({
-      data: { name, email, phone, address, city, province, postalCode },
-    });
-    res.status(201).json({ status: 'ok', data: customer });
-  } catch (error) {
-    if (error.code === 'P2002') {
-      return res.status(400).json({ status: 'error', message: 'Email already exists' });
+router.post(
+  '/customers',
+  validate({
+    name: [required, string, minLen(2), maxLen(200)],
+    email: [email],
+    phone: [string, maxLen(20)],
+    address: [string, maxLen(300)],
+    city: [string, maxLen(100)],
+    province: [string, maxLen(100)],
+    postalCode: [string, maxLen(10)],
+  }),
+  async (req, res) => {
+    try {
+      const { name, email: emailVal, phone, address, city, province, postalCode } = req.body;
+      const customer = await prisma.customer.create({
+        data: { name, email: emailVal, phone, address, city, province, postalCode },
+      });
+      res.status(201).json({ status: 'ok', data: customer });
+    } catch (error) {
+      if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Email already exists' });
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
-router.put('/customers/:id', async (req, res) => {
-  try {
-    const { name, email, phone, address, city, province, postalCode, active } = req.body;
-    const customer = await prisma.customer.update({
-      where: { id: req.params.id },
-      data: { name, email, phone, address, city, province, postalCode, active },
-    });
-    res.json({ status: 'ok', data: customer });
-  } catch (error) {
-    if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Customer not found' });
-    res.status(500).json({ status: 'error', message: error.message });
+router.put(
+  '/customers/:id',
+  validate({
+    name: [string, minLen(2), maxLen(200)],
+    email: [email],
+    phone: [string, maxLen(20)],
+    address: [string, maxLen(300)],
+    city: [string, maxLen(100)],
+    province: [string, maxLen(100)],
+    postalCode: [string, maxLen(10)],
+    active: [boolean],
+  }),
+  async (req, res) => {
+    try {
+      const { name, email: emailVal, phone, address, city, province, postalCode, active } = req.body;
+      const customer = await prisma.customer.update({
+        where: { id: req.params.id },
+        data: { name, email: emailVal, phone, address, city, province, postalCode, active },
+      });
+      res.json({ status: 'ok', data: customer });
+    } catch (error) {
+      if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Customer not found' });
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
-});
+);
 
 router.delete('/customers/:id', async (req, res) => {
   try {
@@ -134,12 +159,21 @@ router.get('/invoices/:id', async (req, res) => {
   }
 });
 
-router.post('/invoices', async (req, res) => {
+router.post(
+  '/invoices',
+  validate({
+    customerId: [required, string],
+    date: [required, date],
+    dueDate: [date],
+    notes: [string, maxLen(500)],
+    lines: [required, array, minItems(1)],
+    'lines.*.itemId': [required, string],
+    'lines.*.quantity': [required, integer, min(1)],
+    'lines.*.unitPrice': [required, number, min(0)],
+  }),
+  async (req, res) => {
   try {
-    const { customerId, date, dueDate, notes, lines } = req.body;
-    if (!customerId || !date || !lines || lines.length === 0) {
-      return res.status(400).json({ status: 'error', message: 'customerId, date, and lines are required' });
-    }
+    const { customerId, date: dateVal, dueDate, notes, lines } = req.body;
 
     const result = await prisma.$transaction(async (tx) => {
       const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
@@ -147,7 +181,7 @@ router.post('/invoices', async (req, res) => {
         data: {
           invoiceNo: generateTransactionNo('INV'),
           customerId,
-          date: new Date(date),
+          date: new Date(dateVal),
           dueDate: dueDate ? new Date(dueDate) : null,
           status: 'draft',
           totalAmount,
@@ -173,7 +207,8 @@ router.post('/invoices', async (req, res) => {
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
-});
+  }
+);
 
 // Post invoice — deducts stock and creates accounting journal
 router.put('/invoices/:id/post', async (req, res) => {
