@@ -9,6 +9,8 @@
     "prisma:push": "prisma db push",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
+    "seed": "node prisma/seed.js",
+    "setup": "prisma generate && prisma db push && node prisma/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
