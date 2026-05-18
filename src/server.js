@@ -71,6 +71,9 @@ app.get('/api', (req, res) => {
         cancelOrder: 'PUT /api/purchasing/orders/:id/cancel',
         receipts: 'GET/POST /api/purchasing/receipts',
         receipt: 'GET /api/purchasing/receipts/:id',
+        payments: 'GET/POST /api/purchasing/payments',
+        payment: 'GET /api/purchasing/payments/:id',
+        apSummary: 'GET /api/purchasing/ap-summary',
       },
       sales: {
         customers: 'GET/POST /api/sales/customers',

@@ -108,6 +108,7 @@ model Supplier {
 
   // Relations
   purchaseOrders PurchaseOrder[]
+  apPayments     APPayment[]
 
   @@map("suppliers")
 }
@@ -153,6 +154,27 @@ model PurchaseOrderLine {
   @@map("purchase_order_lines")
 }
 
+// AP Payment (Bayar hutang ke supplier)
+model APPayment {
+  id            String    @id @default(cuid())
+  paymentNo     String    @unique
+  supplier      Supplier  @relation(fields: [supplierId], references: [id])
+  supplierId    String
+  receipt       PurchaseReceipt? @relation(fields: [receiptId], references: [id])
+  receiptId     String?
+  date          DateTime
+  amount        Float
+  method        String    @default("cash") // cash, transfer, check
+  reference     String?   // bukti transfer / nomor cek
+  notes         String?
+  journal       Journal?  @relation("ap_payment_journal")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("ap_payments")
+  @@index([supplierId])
+}
+
 // Purchase Receipt (Goods Received Note)
 model PurchaseReceipt {
   id             String   @id @default(cuid())
@@ -167,6 +189,7 @@ model PurchaseReceipt {
   // Relations
   stockMovements StockMovement[]
   journal        Journal?  @relation("purchase_receipt_journal")
+  apPayments     APPayment[]
 
   @@map("purchase_receipts")
 }
@@ -258,6 +281,8 @@ model Journal {
   invoiceId     String?  @unique
   purchaseReceipt PurchaseReceipt? @relation("purchase_receipt_journal", fields: [receiptId], references: [id])
   receiptId     String?  @unique
+  apPayment     APPayment? @relation("ap_payment_journal", fields: [apPaymentId], references: [id])
+  apPaymentId   String?  @unique
 
   @@map("journals")
   @@index([date])

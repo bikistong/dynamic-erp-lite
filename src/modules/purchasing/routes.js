@@ -339,4 +339,165 @@ router.post(
   }
 );
 
+// ============================================
+// AP PAYMENTS (Bayar hutang ke supplier)
+// ============================================
+
+router.get('/payments', async (req, res) => {
+  try {
+    const { supplierId } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
+    const where = supplierId ? { supplierId } : {};
+    const [payments, total] = await Promise.all([
+      prisma.aPPayment.findMany({
+        where,
+        include: {
+          supplier: { select: { name: true } },
+          receipt: { select: { receiptNumber: true, poNumber: true } },
+        },
+        orderBy: { date: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.aPPayment.count({ where }),
+    ]);
+    res.json(paginatedResponse(payments, total, page, limit));
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+router.get('/payments/:id', async (req, res) => {
+  try {
+    const payment = await prisma.aPPayment.findUnique({
+      where: { id: req.params.id },
+      include: {
+        supplier: true,
+        receipt: { select: { receiptNumber: true, poNumber: true } },
+        journal: { include: { lines: { include: { account: { select: { code: true, name: true } } } } } },
+      },
+    });
+    if (!payment) return res.status(404).json({ status: 'error', message: 'Payment not found' });
+    res.json({ status: 'ok', data: payment });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+router.post(
+  '/payments',
+  validate({
+    supplierId: [required, string],
+    date: [required, date],
+    amount: [required, number, min(0.01)],
+    method: [rules.enum(['cash', 'transfer', 'check'])],
+    receiptId: [string],
+    reference: [string, maxLen(100)],
+    notes: [string, maxLen(300)],
+  }),
+  async (req, res) => {
+    try {
+      const { supplierId, date: dateVal, amount, method = 'cash', receiptId, reference, notes } = req.body;
+
+      // Verify supplier exists
+      const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
+      if (!supplier) return res.status(404).json({ status: 'error', message: 'Supplier not found' });
+
+      // Verify receipt belongs to this supplier (optional linkage)
+      if (receiptId) {
+        const receipt = await prisma.purchaseReceipt.findUnique({ where: { id: receiptId } });
+        if (!receipt) return res.status(404).json({ status: 'error', message: 'Receipt not found' });
+      }
+
+      const paymentNo = generateTransactionNo('PAY');
+      const payment = await prisma.aPPayment.create({
+        data: { paymentNo, supplierId, receiptId: receiptId || null, date: new Date(dateVal), amount, method, reference, notes },
+        include: { supplier: { select: { name: true } }, receipt: { select: { receiptNumber: true } } },
+      });
+
+      // Journal: Debit AP (2100), Credit Cash/Bank (1100)
+      try {
+        const journal = await createJournal({
+          date: dateVal,
+          description: `AP Payment to ${supplier.name} - ${paymentNo}`,
+          type: 'auto',
+          reference: paymentNo,
+          referenceType: 'ap_payment',
+          lines: [
+            { accountCode: '2100', debit: amount, credit: 0, description: `Payment to ${supplier.name}` },
+            { accountCode: '1100', debit: 0, credit: amount, description: method === 'cash' ? 'Cash paid' : 'Bank transfer' },
+          ],
+        });
+        await prisma.aPPayment.update({
+          where: { id: payment.id },
+          data: { journal: { connect: { id: journal.id } } },
+        });
+        await postJournal(journal.id);
+      } catch (journalErr) {
+        console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
+      }
+
+      res.status(201).json({ status: 'ok', data: payment });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
+    }
+  }
+);
+
+// AP Summary — total hutang per supplier
+router.get('/ap-summary', async (req, res) => {
+  try {
+    const { supplierId } = req.query;
+
+    // Total AP dari receipts
+    const receiptsAgg = await prisma.generalLedger.groupBy({
+      by: ['accountId'],
+      where: {
+        account: { code: '2100' },
+      },
+      _sum: { credit: true, debit: true },
+    });
+
+    // Hutang belum dibayar = total credit - total debit akun 2100
+    const totalCredit = receiptsAgg[0]?._sum?.credit || 0;
+    const totalDebit = receiptsAgg[0]?._sum?.debit || 0;
+    const totalOutstanding = totalCredit - totalDebit;
+
+    // Payments per supplier
+    const paymentsBySupplier = await prisma.aPPayment.groupBy({
+      by: ['supplierId'],
+      where: supplierId ? { supplierId } : {},
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    const supplierIds = paymentsBySupplier.map((p) => p.supplierId);
+    const suppliers = await prisma.supplier.findMany({
+      where: { id: { in: supplierIds } },
+      select: { id: true, name: true },
+    });
+
+    const summary = paymentsBySupplier.map((p) => {
+      const sup = suppliers.find((s) => s.id === p.supplierId);
+      return {
+        supplierId: p.supplierId,
+        supplierName: sup?.name || 'Unknown',
+        totalPaid: p._sum.amount,
+        paymentCount: p._count.id,
+      };
+    });
+
+    res.json({
+      status: 'ok',
+      data: {
+        totalOutstandingAP: totalOutstanding,
+        totalPaidAP: totalDebit,
+        paymentsBySupplier: summary,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 module.exports = router;
