@@ -60,14 +60,19 @@ model Item {
   uom             String   // Unit of Measure: pcs, kg, liter, etc
   purchasePrice   Float    @default(0)
   sellingPrice    Float    @default(0)
+  itemType        String   @default("general") // raw_material, finished_good, general
   active          Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   // Relations
-  stockMovements   StockMovement[]
-  purchaseLines    PurchaseOrderLine[]
-  salesLines       SalesInvoiceLine[]
+  stockMovements      StockMovement[]
+  purchaseLines       PurchaseOrderLine[]
+  salesLines          SalesInvoiceLine[]
+  boms                BOM[]              @relation("FGItemBOMs")
+  bomLineMaterials    BOMLine[]          @relation("RMItemBOMLines")
+  jobOrders           JobOrder[]         @relation("FGItemJobOrders")
+  jobOrderMaterials   JobOrderMaterial[] @relation("RMItemJobOrderMaterials")
 
   @@map("items")
 }
@@ -214,6 +219,7 @@ model SalesInvoice {
   // Relations
   lines       SalesInvoiceLine[]
   journal     Journal?  @relation("sales_invoice_journal")
+  jobOrders   JobOrder[]
 
   @@map("sales_invoices")
 }
@@ -229,6 +235,8 @@ model SalesInvoiceLine {
   totalAmount Float    @default(0)  // quantity * unitPrice (before tax)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  jobOrder    JobOrder?
 
   @@map("sales_invoice_lines")
 }
@@ -286,6 +294,8 @@ model Journal {
   receiptId     String?  @unique
   apPayment     APPayment? @relation("ap_payment_journal", fields: [apPaymentId], references: [id])
   apPaymentId   String?  @unique
+  jobOrder      JobOrder? @relation("job_order_journal", fields: [jobOrderId], references: [id])
+  jobOrderId    String?  @unique
 
   @@map("journals")
   @@index([date])
@@ -325,4 +335,85 @@ model GeneralLedger {
   @@map("general_ledger")
   @@index([accountId])
   @@index([date])
+}
+
+// ============================================
+// PRODUCTION MODELS
+// ============================================
+
+// Bill of Materials
+model BOM {
+  id             String   @id @default(cuid())
+  bomCode        String   @unique
+  finishedGood   Item     @relation("FGItemBOMs", fields: [finishedGoodId], references: [id])
+  finishedGoodId String
+  description    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lines     BOMLine[]
+  jobOrders JobOrder[]
+
+  @@map("boms")
+  @@index([finishedGoodId])
+}
+
+model BOMLine {
+  id              String   @id @default(cuid())
+  bom             BOM      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  bomId           String
+  material        Item     @relation("RMItemBOMLines", fields: [materialId], references: [id])
+  materialId      String
+  quantityPerUnit Float    // RM needed per 1 unit of FG
+  uom             String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("bom_lines")
+  @@index([bomId])
+}
+
+// Job Order (Production Order)
+model JobOrder {
+  id                 String   @id @default(cuid())
+  jobOrderNo         String   @unique
+  salesInvoice       SalesInvoice     @relation(fields: [salesInvoiceId], references: [id])
+  salesInvoiceId     String
+  salesInvoiceLine   SalesInvoiceLine @relation(fields: [salesInvoiceLineId], references: [id])
+  salesInvoiceLineId String   @unique
+  finishedGood       Item     @relation("FGItemJobOrders", fields: [finishedGoodId], references: [id])
+  finishedGoodId     String
+  bom                BOM      @relation(fields: [bomId], references: [id])
+  bomId              String
+  plannedQty         Int
+  completedQty       Int      @default(0)
+  status             String   @default("draft") // draft, waiting_material, ready, completed, cancelled
+  completedDate      DateTime?
+  notes              String?
+  journal            Journal? @relation("job_order_journal")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  materials JobOrderMaterial[]
+
+  @@map("job_orders")
+  @@index([salesInvoiceId])
+  @@index([status])
+}
+
+// Job Order Materials (RM requirements per job order)
+model JobOrderMaterial {
+  id          String   @id @default(cuid())
+  jobOrder    JobOrder @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  jobOrderId  String
+  material    Item     @relation("RMItemJobOrderMaterials", fields: [materialId], references: [id])
+  materialId  String
+  requiredQty Float
+  consumedQty Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("job_order_materials")
+  @@index([jobOrderId])
 }

@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS "items" (
   "uom"           TEXT NOT NULL,
   "purchasePrice" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "sellingPrice"  DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "itemType"      TEXT NOT NULL DEFAULT 'general',
   "active"        BOOLEAN NOT NULL DEFAULT true,
   "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -218,3 +219,80 @@ CREATE TABLE IF NOT EXISTS "general_ledger" (
 );
 CREATE INDEX IF NOT EXISTS "general_ledger_accountId_idx" ON "general_ledger"("accountId");
 CREATE INDEX IF NOT EXISTS "general_ledger_date_idx" ON "general_ledger"("date");
+
+-- ============================================
+-- PRODUCTION MODULE
+-- ============================================
+
+-- Add itemType to items (run this if items table already exists)
+ALTER TABLE "items" ADD COLUMN IF NOT EXISTS "itemType" TEXT NOT NULL DEFAULT 'general';
+
+-- Add jobOrderId to journals (run this if journals table already exists)
+ALTER TABLE "journals" ADD COLUMN IF NOT EXISTS "jobOrderId" TEXT UNIQUE;
+
+-- Add jobOrder relation to sales_invoice_lines (for existing tables)
+-- (no column needed - handled via job_orders.salesInvoiceLineId)
+
+CREATE TABLE IF NOT EXISTS "boms" (
+  "id"             TEXT NOT NULL PRIMARY KEY,
+  "bomCode"        TEXT NOT NULL UNIQUE,
+  "finishedGoodId" TEXT NOT NULL,
+  "description"    TEXT,
+  "active"         BOOLEAN NOT NULL DEFAULT true,
+  "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY ("finishedGoodId") REFERENCES "items"("id")
+);
+CREATE INDEX IF NOT EXISTS "boms_finishedGoodId_idx" ON "boms"("finishedGoodId");
+
+CREATE TABLE IF NOT EXISTS "bom_lines" (
+  "id"              TEXT NOT NULL PRIMARY KEY,
+  "bomId"           TEXT NOT NULL,
+  "materialId"      TEXT NOT NULL,
+  "quantityPerUnit" DOUBLE PRECISION NOT NULL,
+  "uom"             TEXT,
+  "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY ("bomId") REFERENCES "boms"("id") ON DELETE CASCADE,
+  FOREIGN KEY ("materialId") REFERENCES "items"("id")
+);
+CREATE INDEX IF NOT EXISTS "bom_lines_bomId_idx" ON "bom_lines"("bomId");
+
+CREATE TABLE IF NOT EXISTS "job_orders" (
+  "id"                 TEXT NOT NULL PRIMARY KEY,
+  "jobOrderNo"         TEXT NOT NULL UNIQUE,
+  "salesInvoiceId"     TEXT NOT NULL,
+  "salesInvoiceLineId" TEXT NOT NULL UNIQUE,
+  "finishedGoodId"     TEXT NOT NULL,
+  "bomId"              TEXT NOT NULL,
+  "plannedQty"         INTEGER NOT NULL,
+  "completedQty"       INTEGER NOT NULL DEFAULT 0,
+  "status"             TEXT NOT NULL DEFAULT 'draft',
+  "completedDate"      TIMESTAMP(3),
+  "notes"              TEXT,
+  "createdAt"          TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"          TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY ("salesInvoiceId") REFERENCES "sales_invoices"("id"),
+  FOREIGN KEY ("salesInvoiceLineId") REFERENCES "sales_invoice_lines"("id"),
+  FOREIGN KEY ("finishedGoodId") REFERENCES "items"("id"),
+  FOREIGN KEY ("bomId") REFERENCES "boms"("id")
+);
+CREATE INDEX IF NOT EXISTS "job_orders_salesInvoiceId_idx" ON "job_orders"("salesInvoiceId");
+CREATE INDEX IF NOT EXISTS "job_orders_status_idx" ON "job_orders"("status");
+
+CREATE TABLE IF NOT EXISTS "job_order_materials" (
+  "id"          TEXT NOT NULL PRIMARY KEY,
+  "jobOrderId"  TEXT NOT NULL,
+  "materialId"  TEXT NOT NULL,
+  "requiredQty" DOUBLE PRECISION NOT NULL,
+  "consumedQty" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY ("jobOrderId") REFERENCES "job_orders"("id") ON DELETE CASCADE,
+  FOREIGN KEY ("materialId") REFERENCES "items"("id")
+);
+CREATE INDEX IF NOT EXISTS "job_order_materials_jobOrderId_idx" ON "job_order_materials"("jobOrderId");
+
+-- Add FK from journals to job_orders (after job_orders table exists)
+ALTER TABLE "journals" ADD CONSTRAINT IF NOT EXISTS "journals_jobOrderId_fkey"
+  FOREIGN KEY ("jobOrderId") REFERENCES "job_orders"("id");

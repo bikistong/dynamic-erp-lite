@@ -114,6 +114,7 @@ const inventoryRoutes = require('./modules/inventory/routes');
 const purchasingRoutes = require('./modules/purchasing/routes');
 const salesRoutes = require('./modules/sales/routes');
 const accountingRoutes = require('./modules/accounting/routes');
+const productionRoutes = require('./modules/production/routes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
@@ -121,6 +122,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/purchasing', purchasingRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/accounting', accountingRoutes);
+app.use('/api/production', productionRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

@@ -3,6 +3,7 @@ const router = express.Router();
 const prisma = require('../../shared/db/prisma');
 const { generateTransactionNo, parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
+const { recheckWaitingJobOrders } = require('../production/routes');
 const { authenticate } = require('../../shared/middleware/auth');
 const { validate, rules } = require('../../shared/utils/validate');
 
@@ -331,6 +332,9 @@ router.post(
       } catch (journalErr) {
         console.warn('Journal creation skipped (COA may not be seeded):', journalErr.message);
       }
+
+      // Re-check waiting job orders after stock updated
+      recheckWaitingJobOrders().catch((e) => console.warn('recheckWaitingJobOrders error:', e.message));
 
       res.status(201).json({ status: 'ok', data: result.receipt });
     } catch (error) {

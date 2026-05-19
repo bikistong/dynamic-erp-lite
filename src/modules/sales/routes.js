@@ -8,6 +8,104 @@ const { validate, rules } = require('../../shared/utils/validate');
 
 const { required, string, number, integer, min, max, minLen, maxLen, date, boolean, email, array, minItems } = rules;
 
+// Auto-create job orders for FG items in an invoice
+async function createJobOrdersForInvoice(invoice) {
+  const results = { created: [], skipped: [] };
+
+  for (const line of invoice.lines) {
+    const item = await prisma.item.findUnique({ where: { id: line.itemId } });
+    if (!item || item.itemType !== 'finished_good') {
+      results.skipped.push({ itemId: line.itemId, reason: 'not a finished_good' });
+      continue;
+    }
+
+    // Find active BOM for this FG
+    const bom = await prisma.bOM.findFirst({
+      where: { finishedGoodId: item.id, active: true },
+      include: { lines: { include: { material: true } } },
+    });
+    if (!bom) {
+      results.skipped.push({ itemId: line.itemId, reason: 'no active BOM found' });
+      continue;
+    }
+
+    // Calculate required materials
+    const materials = bom.lines.map((bl) => ({
+      materialId: bl.materialId,
+      requiredQty: bl.quantityPerUnit * line.quantity,
+      material: bl.material,
+    }));
+
+    // Check stock availability
+    const shortages = materials.filter((m) => m.material.stock < m.requiredQty);
+    const status = shortages.length === 0 ? 'ready' : 'waiting_material';
+
+    // Create job order
+    const jobOrder = await prisma.jobOrder.create({
+      data: {
+        jobOrderNo: generateTransactionNo('JO'),
+        salesInvoiceId: invoice.id,
+        salesInvoiceLineId: line.id,
+        finishedGoodId: item.id,
+        bomId: bom.id,
+        plannedQty: line.quantity,
+        status,
+        materials: {
+          create: materials.map((m) => ({
+            materialId: m.materialId,
+            requiredQty: m.requiredQty,
+          })),
+        },
+      },
+    });
+
+    // Auto-create draft PO for shortages
+    if (shortages.length > 0) {
+      const posBySupplier = {};
+      for (const shortage of shortages) {
+        const shortfall = shortage.requiredQty - shortage.material.stock;
+        // Find last supplier for this RM
+        const lastPOLine = await prisma.purchaseOrderLine.findFirst({
+          where: { itemId: shortage.materialId },
+          include: { purchaseOrder: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        const supplierId = lastPOLine?.purchaseOrder?.supplierId;
+        if (!supplierId) continue;
+
+        if (!posBySupplier[supplierId]) posBySupplier[supplierId] = [];
+        posBySupplier[supplierId].push({ itemId: shortage.materialId, shortfall, unitPrice: shortage.material.purchasePrice });
+      }
+
+      for (const [supplierId, items] of Object.entries(posBySupplier)) {
+        const totalAmount = items.reduce((s, i) => s + i.shortfall * i.unitPrice, 0);
+        await prisma.purchaseOrder.create({
+          data: {
+            poNumber: generateTransactionNo('PO'),
+            supplierId,
+            date: new Date(),
+            status: 'draft',
+            totalAmount,
+            notes: `Auto-created for job order ${jobOrder.jobOrderNo}`,
+            lines: {
+              create: items.map((i) => ({
+                itemId: i.itemId,
+                quantity: Math.ceil(i.shortfall),
+                unitPrice: i.unitPrice,
+                totalAmount: Math.ceil(i.shortfall) * i.unitPrice,
+              })),
+            },
+          },
+        });
+      }
+    }
+
+    results.created.push({ jobOrderNo: jobOrder.jobOrderNo, status, shortages: shortages.map((s) => s.material.name) });
+  }
+
+  return results;
+}
+
 router.use(authenticate);
 
 // ============================================
@@ -207,7 +305,14 @@ router.post(
         },
       });
 
-      res.status(201).json({ status: 'ok', data: invoice });
+      // Auto-create job orders for FG items
+      const invoiceWithLines = await prisma.salesInvoice.findUnique({
+        where: { id: invoice.id },
+        include: { lines: true },
+      });
+      const jobOrderResults = await createJobOrdersForInvoice(invoiceWithLines);
+
+      res.status(201).json({ status: 'ok', data: invoice, jobOrders: jobOrderResults });
     } catch (error) {
       res.status(500).json({ status: 'error', message: error.message });
     }
@@ -224,6 +329,19 @@ router.put('/invoices/:id/post', async (req, res) => {
     if (!invoice) return res.status(404).json({ status: 'error', message: 'Invoice not found' });
     if (invoice.status !== 'draft') {
       return res.status(400).json({ status: 'error', message: 'Only draft invoices can be posted' });
+    }
+
+    // Check all job orders are completed
+    const pendingJobOrders = await prisma.jobOrder.findMany({
+      where: { salesInvoiceId: req.params.id, status: { notIn: ['completed', 'cancelled'] } },
+      select: { jobOrderNo: true, status: true, finishedGood: { select: { name: true } } },
+    });
+    if (pendingJobOrders.length > 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'All job orders must be completed before posting invoice',
+        pendingJobOrders,
+      });
     }
 
     // Check stock availability
