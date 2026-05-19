@@ -202,6 +202,7 @@ const spec = {
     { name: 'Purchasing', description: 'Supplier, Purchase Order, penerimaan barang, dan pembayaran hutang' },
     { name: 'Sales', description: 'Customer, faktur penjualan, dan laporan PPN' },
     { name: 'Accounting', description: 'Chart of Accounts, jurnal, buku besar, dan laporan keuangan' },
+    { name: 'Production', description: 'BOM, Job Order, dan proses produksi RM → FG' },
   ],
 
   paths: {
@@ -1151,6 +1152,142 @@ const spec = {
           { name: 'asOf', in: 'query', schema: { type: 'string', format: 'date' }, example: '2024-12-31', description: 'Per tanggal' },
         ],
         responses: { 200: { description: 'Aset, kewajiban, dan ekuitas' } },
+      },
+    },
+
+    // ── Production ──
+    '/production/boms': {
+      get: {
+        tags: ['Production'],
+        summary: 'List BOM (Bill of Materials)',
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          { name: 'active', in: 'query', schema: { type: 'boolean' } },
+          { name: 'finishedGoodId', in: 'query', schema: { type: 'string' } },
+          { name: 'search', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'List BOM' } },
+      },
+      post: {
+        tags: ['Production'],
+        summary: 'Buat BOM baru',
+        description: 'Membuat Bill of Materials untuk item finished_good. Otomatis menonaktifkan BOM lama untuk FG yang sama.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['finishedGoodId', 'lines'],
+                properties: {
+                  finishedGoodId: { type: 'string', description: 'ID item dengan itemType = finished_good' },
+                  description: { type: 'string', example: 'Resep standar produk A' },
+                  lines: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'object',
+                      required: ['materialId', 'quantityPerUnit'],
+                      properties: {
+                        materialId: { type: 'string', description: 'ID item RM (raw_material)' },
+                        quantityPerUnit: { type: 'number', example: 2.5, description: 'Jumlah RM per 1 unit FG' },
+                        uom: { type: 'string', example: 'kg' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: { description: 'BOM berhasil dibuat' } },
+      },
+    },
+    '/production/boms/{id}': {
+      get: {
+        tags: ['Production'],
+        summary: 'Detail BOM',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Detail BOM beserta lines' } },
+      },
+      put: {
+        tags: ['Production'],
+        summary: 'Update BOM',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  description: { type: 'string' },
+                  active: { type: 'boolean' },
+                  lines: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        materialId: { type: 'string' },
+                        quantityPerUnit: { type: 'number' },
+                        uom: { type: 'string' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'BOM berhasil diupdate' } },
+      },
+      delete: {
+        tags: ['Production'],
+        summary: 'Nonaktifkan BOM',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'BOM dinonaktifkan' } },
+      },
+    },
+    '/production/job-orders': {
+      get: {
+        tags: ['Production'],
+        summary: 'List Job Order',
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
+          { name: 'status', in: 'query', schema: { type: 'string', enum: ['draft', 'waiting_material', 'ready', 'completed', 'cancelled'] } },
+          { name: 'salesInvoiceId', in: 'query', schema: { type: 'string' } },
+          { name: 'finishedGoodId', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: 'List job order' } },
+      },
+    },
+    '/production/job-orders/{id}': {
+      get: {
+        tags: ['Production'],
+        summary: 'Detail Job Order',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Detail job order beserta materials dan journal' } },
+      },
+    },
+    '/production/job-orders/{id}/complete': {
+      put: {
+        tags: ['Production'],
+        summary: 'Selesaikan Job Order',
+        description: 'Mendeduct stok RM, menambah stok FG, dan membuat jurnal otomatis. Status harus ready atau waiting_material.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: { description: 'Job order selesai, stok FG bertambah' },
+          400: { description: 'Stok RM tidak cukup atau status tidak valid' },
+        },
+      },
+    },
+    '/production/job-orders/{id}/cancel': {
+      put: {
+        tags: ['Production'],
+        summary: 'Batalkan Job Order',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: { description: 'Job order dibatalkan' } },
       },
     },
   },
