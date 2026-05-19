@@ -82,13 +82,22 @@ router.put(
     purchasePrice: [number, min(0)],
     sellingPrice: [number, min(0)],
     active: [boolean],
+    itemType: [string],
   }),
   async (req, res) => {
     try {
-      const { name, description, uom, purchasePrice, sellingPrice, active } = req.body;
+      const { name, description, uom, purchasePrice, sellingPrice, active, itemType } = req.body;
+      const data = {};
+      if (name !== undefined) data.name = name;
+      if (description !== undefined) data.description = description;
+      if (uom !== undefined) data.uom = uom;
+      if (purchasePrice !== undefined) data.purchasePrice = purchasePrice;
+      if (sellingPrice !== undefined) data.sellingPrice = sellingPrice;
+      if (active !== undefined) data.active = active;
+      if (itemType !== undefined) data.itemType = itemType;
       const item = await prisma.item.update({
         where: { id: req.params.id },
-        data: { name, description, uom, purchasePrice, sellingPrice, active },
+        data,
       });
       res.json({ status: 'ok', data: item });
     } catch (error) {
