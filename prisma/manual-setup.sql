@@ -294,5 +294,12 @@ CREATE TABLE IF NOT EXISTS "job_order_materials" (
 CREATE INDEX IF NOT EXISTS "job_order_materials_jobOrderId_idx" ON "job_order_materials"("jobOrderId");
 
 -- Add FK from journals to job_orders (after job_orders table exists)
-ALTER TABLE "journals" ADD CONSTRAINT IF NOT EXISTS "journals_jobOrderId_fkey"
-  FOREIGN KEY ("jobOrderId") REFERENCES "job_orders"("id");
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'journals_jobOrderId_fkey'
+  ) THEN
+    ALTER TABLE "journals" ADD CONSTRAINT "journals_jobOrderId_fkey"
+      FOREIGN KEY ("jobOrderId") REFERENCES "job_orders"("id");
+  END IF;
+END $$;
