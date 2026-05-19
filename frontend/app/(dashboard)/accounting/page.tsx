@@ -8,8 +8,8 @@ interface Journal {
 }
 
 const statusColors: Record<string, string> = {
-  draft: 'bg-gray-100 text-gray-600',
-  posted: 'bg-green-100 text-green-700',
+  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  posted: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
 };
 
 export default function AccountingPage() {
@@ -25,40 +25,42 @@ export default function AccountingPage() {
   return (
     <div className="p-6 md:p-8 space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">Accounting</h2>
-        <p className="text-sm text-gray-500 mt-0.5">Jurnal dan buku besar</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Accounting</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Jurnal dan buku besar</p>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
-            <tr>
-              {['No. Jurnal', 'Tanggal', 'Keterangan', 'Referensi', 'Tipe', 'Status'].map((h) => (
-                <th key={h} className="text-left px-4 py-3 font-medium">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Memuat...</td></tr>}
-            {!loading && journals.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Tidak ada jurnal</td></tr>}
-            {journals.map((j) => (
-              <tr key={j.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{j.journalNo}</td>
-                <td className="px-4 py-3 text-gray-500">{new Date(j.date).toLocaleDateString('id-ID')}</td>
-                <td className="px-4 py-3 text-gray-800 max-w-xs truncate">{j.description}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{j.reference || '-'}</td>
-                <td className="px-4 py-3">
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{j.type}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[j.status] || 'bg-gray-100'}`}>
-                    {j.status}
-                  </span>
-                </td>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-gray-800">
+                {['No. Jurnal', 'Tanggal', 'Keterangan', 'Referensi', 'Tipe', 'Status'].map((h) => (
+                  <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wide">{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Memuat...</td></tr>}
+              {!loading && journals.length === 0 && <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Tidak ada jurnal</td></tr>}
+              {journals.map((j) => (
+                <tr key={j.id} className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                  <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">{j.journalNo}</td>
+                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 text-xs">{new Date(j.date).toLocaleDateString('id-ID')}</td>
+                  <td className="px-5 py-3.5 text-gray-800 dark:text-gray-200 max-w-xs truncate">{j.description}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-gray-400 dark:text-gray-600">{j.reference || '—'}</td>
+                  <td className="px-5 py-3.5">
+                    <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2.5 py-1 rounded-full font-medium">{j.type}</span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[j.status] || 'bg-gray-100 text-gray-500'}`}>
+                      {j.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

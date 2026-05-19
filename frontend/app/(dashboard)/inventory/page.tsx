@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
-import { Search, Plus, Pencil } from 'lucide-react';
+import { Search, Plus, Pencil, X, Package } from 'lucide-react';
 
 interface Item {
   id: string; sku: string; name: string; uom: string;
@@ -14,13 +14,13 @@ function formatRp(n: number) {
 }
 
 const typeColors: Record<string, string> = {
-  raw_material: 'bg-yellow-100 text-yellow-700',
-  finished_good: 'bg-green-100 text-green-700',
-  general: 'bg-gray-100 text-gray-600',
+  raw_material: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+  finished_good: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
+  general: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
 };
 
 const typeLabels: Record<string, string> = {
-  raw_material: 'RM', finished_good: 'FG', general: 'Umum',
+  raw_material: 'Bahan Baku', finished_good: 'Barang Jadi', general: 'Umum',
 };
 
 export default function InventoryPage() {
@@ -64,21 +64,24 @@ export default function InventoryPage() {
 
   return (
     <div className="p-6 md:p-8 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Inventory</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Master barang dan stok</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Inventory</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Master barang dan stok</p>
         </div>
-        <button onClick={openCreate} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
-          <Plus size={16} /> Tambah Item
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+        >
+          <Plus size={16} />Tambah Item
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border">
-        <div className="p-4 border-b flex items-center gap-3">
-          <Search size={16} className="text-gray-400" />
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+          <Search size={15} className="text-gray-400" />
           <input
-            className="flex-1 text-sm outline-none"
+            className="flex-1 text-sm outline-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400"
             placeholder="Cari SKU atau nama..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); load(e.target.value); }}
@@ -86,32 +89,37 @@ export default function InventoryPage() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 text-xs uppercase">
-              <tr>
+            <thead>
+              <tr className="border-b border-gray-50 dark:border-gray-800">
                 {['SKU', 'Nama', 'Tipe', 'Stok', 'UOM', 'Harga Beli', 'Harga Jual', ''].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 font-medium">{h}</th>
+                  <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Memuat...</td></tr>}
-              {!loading && items.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Tidak ada data</td></tr>}
+            <tbody>
+              {loading && <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Memuat...</td></tr>}
+              {!loading && items.length === 0 && <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Belum ada data</td></tr>}
               {items.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{item.sku}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${typeColors[item.itemType] || 'bg-gray-100 text-gray-600'}`}>
+                <tr key={item.id} className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                  <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">{item.sku}</td>
+                  <td className="px-5 py-3.5 font-medium text-gray-900 dark:text-white">{item.name}</td>
+                  <td className="px-5 py-3.5">
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${typeColors[item.itemType] || typeColors.general}`}>
                       {typeLabels[item.itemType] || item.itemType}
                     </span>
                   </td>
-                  <td className={`px-4 py-3 font-medium ${item.stock < 10 ? 'text-orange-600' : 'text-gray-900'}`}>{item.stock}</td>
-                  <td className="px-4 py-3 text-gray-500">{item.uom}</td>
-                  <td className="px-4 py-3 text-gray-700">{formatRp(item.purchasePrice)}</td>
-                  <td className="px-4 py-3 text-gray-700">{formatRp(item.sellingPrice)}</td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => openEdit(item)} className="text-gray-400 hover:text-blue-600">
-                      <Pencil size={15} />
+                  <td className="px-5 py-3.5">
+                    <span className={`font-semibold ${item.stock < 10 ? 'text-red-500' : 'text-gray-900 dark:text-white'}`}>{item.stock}</span>
+                  </td>
+                  <td className="px-5 py-3.5 text-gray-500 dark:text-gray-400 text-xs">{item.uom}</td>
+                  <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300 text-xs">{formatRp(item.purchasePrice)}</td>
+                  <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300 text-xs">{formatRp(item.sellingPrice)}</td>
+                  <td className="px-5 py-3.5">
+                    <button
+                      onClick={() => openEdit(item)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+                    >
+                      <Pencil size={14} />
                     </button>
                   </td>
                 </tr>
@@ -122,46 +130,58 @@ export default function InventoryPage() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h3 className="font-bold text-gray-900">{editing ? 'Edit Item' : 'Tambah Item'}</h3>
-            {!editing && (
-              <div>
-                <label className="text-xs font-medium text-gray-600">SKU</label>
-                <input className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-800">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-gray-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                  <Package size={16} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">{editing ? 'Edit Item' : 'Tambah Item'}</h3>
               </div>
-            )}
-            <div>
-              <label className="text-xs font-medium text-gray-600">Nama</label>
-              <input className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <X size={16} />
+              </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="px-6 py-5 space-y-4">
+              {!editing && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">SKU</label>
+                  <input className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+                </div>
+              )}
               <div>
-                <label className="text-xs font-medium text-gray-600">UOM</label>
-                <input className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} />
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Nama</label>
+                <input className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Tipe Item</label>
-                <select className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.itemType} onChange={(e) => setForm({ ...form, itemType: e.target.value })}>
-                  <option value="general">Umum</option>
-                  <option value="raw_material">Raw Material (RM)</option>
-                  <option value="finished_good">Finished Good (FG)</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">UOM</label>
+                  <input className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.uom} onChange={(e) => setForm({ ...form, uom: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Tipe Item</label>
+                  <select className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.itemType} onChange={(e) => setForm({ ...form, itemType: e.target.value })}>
+                    <option value="general">Umum</option>
+                    <option value="raw_material">Bahan Baku</option>
+                    <option value="finished_good">Barang Jadi</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Harga Beli</label>
+                  <input type="number" className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: +e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Harga Jual</label>
+                  <input type="number" className="w-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: +e.target.value })} />
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600">Harga Beli</label>
-                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: +e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Harga Jual</label>
-                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: +e.target.value })} />
-              </div>
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setShowModal(false)} className="flex-1 border rounded-lg py-2 text-sm text-gray-600 hover:bg-gray-50">Batal</button>
-              <button onClick={handleSave} className="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700">Simpan</button>
+            <div className="flex gap-3 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
+              <button onClick={() => setShowModal(false)} className="flex-1 border border-gray-200 dark:border-gray-700 rounded-xl py-2.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Batal</button>
+              <button onClick={handleSave} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2.5 text-sm font-medium transition-colors">Simpan</button>
             </div>
           </div>
         </div>
