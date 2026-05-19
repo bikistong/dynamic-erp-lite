@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./shared/swagger/spec');
 const prisma = require('./shared/db/prisma');
 
 const app = express();
@@ -8,6 +10,11 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'Dynamic ERP Lite — API Docs',
+  swaggerOptions: { persistAuthorization: true },
+}));
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
@@ -47,6 +54,15 @@ app.get('/api', (req, res) => {
     message: 'Dynamic ERP Lite API',
     version: '1.0.0',
     modules: {
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        me: 'GET /api/auth/me',
+        changePassword: 'PUT /api/auth/me/password',
+        users: 'GET /api/auth/users (admin)',
+        updateUser: 'PUT /api/auth/users/:id (admin)',
+      },
+      dashboard: { summary: 'GET /api/dashboard/summary' },
       inventory: {
         items: 'GET/POST /api/inventory/items',
         item: 'GET/PUT/DELETE /api/inventory/items/:id',
@@ -62,6 +78,9 @@ app.get('/api', (req, res) => {
         cancelOrder: 'PUT /api/purchasing/orders/:id/cancel',
         receipts: 'GET/POST /api/purchasing/receipts',
         receipt: 'GET /api/purchasing/receipts/:id',
+        payments: 'GET/POST /api/purchasing/payments',
+        payment: 'GET /api/purchasing/payments/:id',
+        apSummary: 'GET /api/purchasing/ap-summary',
       },
       sales: {
         customers: 'GET/POST /api/sales/customers',
@@ -71,6 +90,7 @@ app.get('/api', (req, res) => {
         postInvoice: 'PUT /api/sales/invoices/:id/post',
         payInvoice: 'PUT /api/sales/invoices/:id/pay',
         cancelInvoice: 'PUT /api/sales/invoices/:id/cancel',
+        ppnSummary: 'GET /api/sales/ppn-summary',
       },
       accounting: {
         accounts: 'GET/POST /api/accounting/accounts',
@@ -88,15 +108,21 @@ app.get('/api', (req, res) => {
   });
 });
 
+const authRoutes = require('./modules/auth/routes');
+const dashboardRoutes = require('./modules/dashboard/routes');
 const inventoryRoutes = require('./modules/inventory/routes');
 const purchasingRoutes = require('./modules/purchasing/routes');
 const salesRoutes = require('./modules/sales/routes');
 const accountingRoutes = require('./modules/accounting/routes');
+const productionRoutes = require('./modules/production/routes');
 
+app.use('/api/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/purchasing', purchasingRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/accounting', accountingRoutes);
+app.use('/api/production', productionRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

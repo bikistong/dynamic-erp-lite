@@ -12,6 +12,23 @@ datasource db {
 }
 
 // ============================================
+// AUTH MODELS
+// ============================================
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("staff") // admin, staff
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ============================================
 // MASTER DATA MODELS
 // ============================================
 
@@ -43,14 +60,19 @@ model Item {
   uom             String   // Unit of Measure: pcs, kg, liter, etc
   purchasePrice   Float    @default(0)
   sellingPrice    Float    @default(0)
+  itemType        String   @default("general") // raw_material, finished_good, general
   active          Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   // Relations
-  stockMovements   StockMovement[]
-  purchaseLines    PurchaseOrderLine[]
-  salesLines       SalesInvoiceLine[]
+  stockMovements      StockMovement[]
+  purchaseLines       PurchaseOrderLine[]
+  salesLines          SalesInvoiceLine[]
+  boms                BOM[]              @relation("FGItemBOMs")
+  bomLineMaterials    BOMLine[]          @relation("RMItemBOMLines")
+  jobOrders           JobOrder[]         @relation("FGItemJobOrders")
+  jobOrderMaterials   JobOrderMaterial[] @relation("RMItemJobOrderMaterials")
 
   @@map("items")
 }
@@ -91,6 +113,7 @@ model Supplier {
 
   // Relations
   purchaseOrders PurchaseOrder[]
+  apPayments     APPayment[]
 
   @@map("suppliers")
 }
@@ -136,6 +159,27 @@ model PurchaseOrderLine {
   @@map("purchase_order_lines")
 }
 
+// AP Payment (Bayar hutang ke supplier)
+model APPayment {
+  id            String    @id @default(cuid())
+  paymentNo     String    @unique
+  supplier      Supplier  @relation(fields: [supplierId], references: [id])
+  supplierId    String
+  receipt       PurchaseReceipt? @relation(fields: [receiptId], references: [id])
+  receiptId     String?
+  date          DateTime
+  amount        Float
+  method        String    @default("cash") // cash, transfer, check
+  reference     String?   // bukti transfer / nomor cek
+  notes         String?
+  journal       Journal?  @relation("ap_payment_journal")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("ap_payments")
+  @@index([supplierId])
+}
+
 // Purchase Receipt (Goods Received Note)
 model PurchaseReceipt {
   id             String   @id @default(cuid())
@@ -150,6 +194,7 @@ model PurchaseReceipt {
   // Relations
   stockMovements StockMovement[]
   journal        Journal?  @relation("purchase_receipt_journal")
+  apPayments     APPayment[]
 
   @@map("purchase_receipts")
 }
@@ -163,7 +208,10 @@ model SalesInvoice {
   date        DateTime
   dueDate     DateTime?
   status      String   @default("draft") // draft, posted, paid, cancelled
-  totalAmount Float    @default(0)
+  subtotal    Float    @default(0)        // before tax
+  taxRate     Float    @default(11)       // PPN percentage, e.g. 11
+  taxAmount   Float    @default(0)        // subtotal * taxRate / 100
+  totalAmount Float    @default(0)        // subtotal + taxAmount
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -171,6 +219,7 @@ model SalesInvoice {
   // Relations
   lines       SalesInvoiceLine[]
   journal     Journal?  @relation("sales_invoice_journal")
+  jobOrders   JobOrder[]
 
   @@map("sales_invoices")
 }
@@ -183,9 +232,11 @@ model SalesInvoiceLine {
   itemId      String
   quantity    Int
   unitPrice   Float
-  totalAmount Float    @default(0)
+  totalAmount Float    @default(0)  // quantity * unitPrice (before tax)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  jobOrder    JobOrder?
 
   @@map("sales_invoice_lines")
 }
@@ -241,6 +292,10 @@ model Journal {
   invoiceId     String?  @unique
   purchaseReceipt PurchaseReceipt? @relation("purchase_receipt_journal", fields: [receiptId], references: [id])
   receiptId     String?  @unique
+  apPayment     APPayment? @relation("ap_payment_journal", fields: [apPaymentId], references: [id])
+  apPaymentId   String?  @unique
+  jobOrder      JobOrder? @relation("job_order_journal", fields: [jobOrderId], references: [id])
+  jobOrderId    String?  @unique
 
   @@map("journals")
   @@index([date])
@@ -280,4 +335,85 @@ model GeneralLedger {
   @@map("general_ledger")
   @@index([accountId])
   @@index([date])
+}
+
+// ============================================
+// PRODUCTION MODELS
+// ============================================
+
+// Bill of Materials
+model BOM {
+  id             String   @id @default(cuid())
+  bomCode        String   @unique
+  finishedGood   Item     @relation("FGItemBOMs", fields: [finishedGoodId], references: [id])
+  finishedGoodId String
+  description    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lines     BOMLine[]
+  jobOrders JobOrder[]
+
+  @@map("boms")
+  @@index([finishedGoodId])
+}
+
+model BOMLine {
+  id              String   @id @default(cuid())
+  bom             BOM      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  bomId           String
+  material        Item     @relation("RMItemBOMLines", fields: [materialId], references: [id])
+  materialId      String
+  quantityPerUnit Float    // RM needed per 1 unit of FG
+  uom             String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("bom_lines")
+  @@index([bomId])
+}
+
+// Job Order (Production Order)
+model JobOrder {
+  id                 String   @id @default(cuid())
+  jobOrderNo         String   @unique
+  salesInvoice       SalesInvoice     @relation(fields: [salesInvoiceId], references: [id])
+  salesInvoiceId     String
+  salesInvoiceLine   SalesInvoiceLine @relation(fields: [salesInvoiceLineId], references: [id])
+  salesInvoiceLineId String   @unique
+  finishedGood       Item     @relation("FGItemJobOrders", fields: [finishedGoodId], references: [id])
+  finishedGoodId     String
+  bom                BOM      @relation(fields: [bomId], references: [id])
+  bomId              String
+  plannedQty         Int
+  completedQty       Int      @default(0)
+  status             String   @default("draft") // draft, waiting_material, ready, completed, cancelled
+  completedDate      DateTime?
+  notes              String?
+  journal            Journal? @relation("job_order_journal")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  materials JobOrderMaterial[]
+
+  @@map("job_orders")
+  @@index([salesInvoiceId])
+  @@index([status])
+}
+
+// Job Order Materials (RM requirements per job order)
+model JobOrderMaterial {
+  id          String   @id @default(cuid())
+  jobOrder    JobOrder @relation(fields: [jobOrderId], references: [id], onDelete: Cascade)
+  jobOrderId  String
+  material    Item     @relation("RMItemJobOrderMaterials", fields: [materialId], references: [id])
+  materialId  String
+  requiredQty Float
+  consumedQty Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("job_order_materials")
+  @@index([jobOrderId])
 }

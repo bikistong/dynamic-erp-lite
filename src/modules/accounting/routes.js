@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../../shared/db/prisma');
 const { createJournal, postJournal } = require('../../shared/journal/journalEngine');
+const { authenticate, requireAdmin } = require('../../shared/middleware/auth');
+const { parsePagination, paginatedResponse } = require('../../shared/utils/helpers');
+const { validate, rules } = require('../../shared/utils/validate');
+
+const { required, string, number, min, minLen, maxLen, date, boolean, array, minItems, enum: enumRule } = rules;
+
+router.use(authenticate);
 
 // ============================================
 // CHART OF ACCOUNTS
@@ -10,6 +17,7 @@ const { createJournal, postJournal } = require('../../shared/journal/journalEngi
 router.get('/accounts', async (req, res) => {
   try {
     const { type, active, search } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (type) where.type = type;
     if (active !== undefined) where.active = active === 'true';
@@ -19,8 +27,11 @@ router.get('/accounts', async (req, res) => {
         { code: { contains: search, mode: 'insensitive' } },
       ];
     }
-    const accounts = await prisma.chartOfAccounts.findMany({ where, orderBy: { code: 'asc' } });
-    res.json({ status: 'ok', data: accounts, total: accounts.length });
+    const [accounts, total] = await Promise.all([
+      prisma.chartOfAccounts.findMany({ where, orderBy: { code: 'asc' }, skip, take }),
+      prisma.chartOfAccounts.count({ where }),
+    ]);
+    res.json(paginatedResponse(accounts, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -36,37 +47,48 @@ router.get('/accounts/:id', async (req, res) => {
   }
 });
 
-router.post('/accounts', async (req, res) => {
-  try {
-    const { code, name, type, description } = req.body;
-    if (!code || !name || !type) {
-      return res.status(400).json({ status: 'error', message: 'code, name, and type are required' });
+router.post(
+  '/accounts',
+  validate({
+    code: [required, string, minLen(1), maxLen(20)],
+    name: [required, string, minLen(2), maxLen(200)],
+    type: [required, enumRule(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'])],
+    description: [string, maxLen(300)],
+  }),
+  async (req, res) => {
+    try {
+      const { code, name, type, description } = req.body;
+      const account = await prisma.chartOfAccounts.create({ data: { code, name, type, description } });
+      res.status(201).json({ status: 'ok', data: account });
+    } catch (error) {
+      if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Account code already exists' });
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    const validTypes = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({ status: 'error', message: `type must be one of: ${validTypes.join(', ')}` });
-    }
-    const account = await prisma.chartOfAccounts.create({ data: { code, name, type, description } });
-    res.status(201).json({ status: 'ok', data: account });
-  } catch (error) {
-    if (error.code === 'P2002') return res.status(400).json({ status: 'error', message: 'Account code already exists' });
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
-router.put('/accounts/:id', async (req, res) => {
-  try {
-    const { name, type, description, active } = req.body;
-    const account = await prisma.chartOfAccounts.update({
-      where: { id: req.params.id },
-      data: { name, type, description, active },
-    });
-    res.json({ status: 'ok', data: account });
-  } catch (error) {
-    if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Account not found' });
-    res.status(500).json({ status: 'error', message: error.message });
+router.put(
+  '/accounts/:id',
+  validate({
+    name: [string, minLen(2), maxLen(200)],
+    type: [enumRule(['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'])],
+    description: [string, maxLen(300)],
+    active: [boolean],
+  }),
+  async (req, res) => {
+    try {
+      const { name, type, description, active } = req.body;
+      const account = await prisma.chartOfAccounts.update({
+        where: { id: req.params.id },
+        data: { name, type, description, active },
+      });
+      res.json({ status: 'ok', data: account });
+    } catch (error) {
+      if (error.code === 'P2025') return res.status(404).json({ status: 'error', message: 'Account not found' });
+      res.status(500).json({ status: 'error', message: error.message });
+    }
   }
-});
+);
 
 router.delete('/accounts/:id', async (req, res) => {
   try {
@@ -78,8 +100,8 @@ router.delete('/accounts/:id', async (req, res) => {
   }
 });
 
-// Seed default chart of accounts
-router.post('/accounts/seed', async (req, res) => {
+// Seed default chart of accounts (admin only)
+router.post('/accounts/seed', requireAdmin, async (req, res) => {
   try {
     const defaultAccounts = [
       // Assets
@@ -136,6 +158,7 @@ router.post('/accounts/seed', async (req, res) => {
 router.get('/journals', async (req, res) => {
   try {
     const { status, type, startDate, endDate } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (status) where.status = status;
     if (type) where.type = type;
@@ -144,14 +167,17 @@ router.get('/journals', async (req, res) => {
       if (startDate) where.date.gte = new Date(startDate);
       if (endDate) where.date.lte = new Date(endDate);
     }
-    const journals = await prisma.journal.findMany({
-      where,
-      include: {
-        lines: { include: { account: { select: { code: true, name: true } } } },
-      },
-      orderBy: { date: 'desc' },
-    });
-    res.json({ status: 'ok', data: journals, total: journals.length });
+    const [journals, total] = await Promise.all([
+      prisma.journal.findMany({
+        where,
+        include: { lines: { include: { account: { select: { code: true, name: true } } } } },
+        orderBy: { date: 'desc' },
+        skip,
+        take,
+      }),
+      prisma.journal.count({ where }),
+    ]);
+    res.json(paginatedResponse(journals, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -174,18 +200,27 @@ router.get('/journals/:id', async (req, res) => {
 });
 
 // Create manual journal
-router.post('/journals', async (req, res) => {
-  try {
-    const { date, description, lines } = req.body;
-    if (!date || !description || !lines || lines.length < 2) {
-      return res.status(400).json({ status: 'error', message: 'date, description, and at least 2 lines are required' });
+router.post(
+  '/journals',
+  validate({
+    date: [required, date],
+    description: [required, string, minLen(3), maxLen(300)],
+    lines: [required, array, minItems(2)],
+    'lines.*.accountCode': [required, string],
+    'lines.*.debit': [number, min(0)],
+    'lines.*.credit': [number, min(0)],
+    'lines.*.description': [string, maxLen(200)],
+  }),
+  async (req, res) => {
+    try {
+      const { date: dateVal, description, lines } = req.body;
+      const journal = await createJournal({ date: dateVal, description, type: 'manual', lines });
+      res.status(201).json({ status: 'ok', data: journal });
+    } catch (error) {
+      res.status(500).json({ status: 'error', message: error.message });
     }
-    const journal = await createJournal({ date, description, type: 'manual', lines });
-    res.status(201).json({ status: 'ok', data: journal });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
   }
-});
+);
 
 // Post journal to general ledger
 router.put('/journals/:id/post', async (req, res) => {
@@ -204,6 +239,7 @@ router.put('/journals/:id/post', async (req, res) => {
 router.get('/ledger', async (req, res) => {
   try {
     const { accountId, accountCode, startDate, endDate } = req.query;
+    const { skip, take, page, limit } = parsePagination(req.query);
     const where = {};
     if (accountId) {
       where.accountId = accountId;
@@ -217,15 +253,20 @@ router.get('/ledger', async (req, res) => {
       if (startDate) where.date.gte = new Date(startDate);
       if (endDate) where.date.lte = new Date(endDate);
     }
-    const entries = await prisma.generalLedger.findMany({
-      where,
-      include: {
-        account: { select: { code: true, name: true, type: true } },
-        journal: { select: { journalNo: true, description: true, reference: true } },
-      },
-      orderBy: { date: 'asc' },
-    });
-    res.json({ status: 'ok', data: entries, total: entries.length });
+    const [entries, total] = await Promise.all([
+      prisma.generalLedger.findMany({
+        where,
+        include: {
+          account: { select: { code: true, name: true, type: true } },
+          journal: { select: { journalNo: true, description: true, reference: true } },
+        },
+        orderBy: { date: 'asc' },
+        skip,
+        take,
+      }),
+      prisma.generalLedger.count({ where }),
+    ]);
+    res.json(paginatedResponse(entries, total, page, limit));
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
