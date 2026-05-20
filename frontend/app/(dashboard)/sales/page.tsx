@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import api from '@/lib/api';
-import { Plus, X, Trash2, FileText } from 'lucide-react';
+import { Plus, X, Trash2, FileText, Send, CreditCard, Ban } from 'lucide-react';
 
 interface Invoice {
   id: string; invoiceNo: string; status: string;
@@ -41,12 +41,51 @@ export default function SalesPage() {
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [formError, setFormError] = useState('');
 
+  const [actioning, setActioning] = useState<string | null>(null);
+
   const loadInvoices = useCallback(() => {
     setLoading(true);
     api.get('/sales/invoices', { params: { limit: 50, status: statusFilter || undefined } })
-      .then((r) => setInvoices(r.data.data))
+      .then((r) => setInvoices(r.data.data || []))
+      .catch(() => setInvoices([]))
       .finally(() => setLoading(false));
   }, [statusFilter]);
+
+  async function postInvoice(id: string) {
+    if (!confirm('Post invoice ini? Stok akan dikurangi dan jurnal dibuat.')) return;
+    setActioning(id);
+    try {
+      await api.put(`/sales/invoices/${id}/post`);
+      loadInvoices();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      alert('Gagal: ' + (msg || 'Error'));
+    } finally { setActioning(null); }
+  }
+
+  async function payInvoice(id: string) {
+    if (!confirm('Tandai invoice ini sebagai lunas?')) return;
+    setActioning(id);
+    try {
+      await api.put(`/sales/invoices/${id}/pay`);
+      loadInvoices();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      alert('Gagal: ' + (msg || 'Error'));
+    } finally { setActioning(null); }
+  }
+
+  async function cancelInvoice(id: string) {
+    if (!confirm('Batalkan invoice ini?')) return;
+    setActioning(id);
+    try {
+      await api.put(`/sales/invoices/${id}/cancel`);
+      loadInvoices();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      alert('Gagal: ' + (msg || 'Error'));
+    } finally { setActioning(null); }
+  }
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
@@ -132,14 +171,14 @@ export default function SalesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-800">
-                {['No. Invoice', 'Customer', 'Tanggal', 'Subtotal', 'PPN', 'Total', 'Status'].map((h) => (
+                {['No. Invoice', 'Customer', 'Tanggal', 'Subtotal', 'PPN', 'Total', 'Status', ''].map((h) => (
                   <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-gray-400 dark:text-gray-600 uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Memuat...</td></tr>}
-              {!loading && invoices.length === 0 && <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Tidak ada data</td></tr>}
+              {loading && <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Memuat...</td></tr>}
+              {!loading && invoices.length === 0 && <tr><td colSpan={8} className="px-5 py-10 text-center text-gray-300 dark:text-gray-700 text-sm">Tidak ada data</td></tr>}
               {invoices.map((inv) => (
                 <tr key={inv.id} className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
                   <td className="px-5 py-3.5 font-mono text-xs text-gray-500 dark:text-gray-400">{inv.invoiceNo}</td>
@@ -152,6 +191,31 @@ export default function SalesPage() {
                     <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[inv.status] || 'bg-gray-100 text-gray-500'}`}>
                       {inv.status}
                     </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-1.5">
+                      {inv.status === 'draft' && (
+                        <button onClick={() => postInvoice(inv.id)} disabled={actioning === inv.id}
+                          title="Post invoice"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors">
+                          <Send size={12} />Post
+                        </button>
+                      )}
+                      {inv.status === 'posted' && (
+                        <button onClick={() => payInvoice(inv.id)} disabled={actioning === inv.id}
+                          title="Tandai lunas"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:hover:bg-emerald-900/40 disabled:opacity-50 transition-colors">
+                          <CreditCard size={12} />Bayar
+                        </button>
+                      )}
+                      {['draft', 'posted'].includes(inv.status) && (
+                        <button onClick={() => cancelInvoice(inv.id)} disabled={actioning === inv.id}
+                          title="Batalkan"
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors">
+                          <Ban size={13} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
