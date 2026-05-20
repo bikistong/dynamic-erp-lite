@@ -354,26 +354,24 @@ router.put('/invoices/:id/post', async (req, res) => {
       }
     }
 
-    // Deduct stock and mark posted
-    await prisma.$transaction(async (tx) => {
-      for (const line of invoice.lines) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: line.itemId,
-            type: 'out',
-            quantity: line.quantity,
-            reference: invoice.invoiceNo,
-            referenceType: 'sales',
-            notes: `Sold via invoice ${invoice.invoiceNo}`,
-          },
-        });
-        await tx.item.update({
-          where: { id: line.itemId },
-          data: { stock: { decrement: line.quantity } },
-        });
-      }
-      await tx.salesInvoice.update({ where: { id: req.params.id }, data: { status: 'posted' } });
-    });
+    // Deduct stock and mark posted (sequential — PgBouncer compatible)
+    for (const line of invoice.lines) {
+      await prisma.stockMovement.create({
+        data: {
+          itemId: line.itemId,
+          type: 'out',
+          quantity: line.quantity,
+          reference: invoice.invoiceNo,
+          referenceType: 'sales',
+          notes: `Sold via invoice ${invoice.invoiceNo}`,
+        },
+      });
+      await prisma.item.update({
+        where: { id: line.itemId },
+        data: { stock: { decrement: line.quantity } },
+      });
+    }
+    await prisma.salesInvoice.update({ where: { id: req.params.id }, data: { status: 'posted' } });
 
     const cogsTotal = invoice.lines.reduce((sum, l) => sum + l.quantity * l.item.purchasePrice, 0);
 
