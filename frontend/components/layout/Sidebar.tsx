@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   BookOpen, Factory, LogOut, Settings, Menu, X,
-  Sun, Moon, Zap, HelpCircle, Layers,
+  Sun, Moon, Zap, HelpCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '@/components/ThemeProvider';
@@ -15,7 +15,6 @@ const navItems = [
   { href: '/purchasing', label: 'Purchasing', icon: ShoppingCart },
   { href: '/sales', label: 'Sales', icon: FileText },
   { href: '/production', label: 'Production', icon: Factory },
-  { href: '/bom', label: 'Bill of Materials', icon: Layers },
   { href: '/accounting', label: 'Accounting', icon: BookOpen },
 ];
 
@@ -91,12 +90,18 @@ export default function Sidebar() {
           {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
           {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
         </button>
-        <button
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white w-full transition-all"
+        <Link
+          href="/settings"
+          onClick={() => setOpen(false)}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full transition-all ${
+            pathname.startsWith('/settings') || pathname === '/bom'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+          }`}
         >
           <Settings size={17} />
           Pengaturan
-        </button>
+        </Link>
         <button
           onClick={logout}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 w-full transition-all"
