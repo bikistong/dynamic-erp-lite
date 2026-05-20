@@ -427,4 +427,197 @@ router.get('/reports/balance-sheet', async (req, res) => {
   }
 });
 
+// ============================================
+// TUTUP BUKU (Monthly Closing)
+// ============================================
+
+router.post('/close-period', async (req, res) => {
+  try {
+    const { year, month } = req.body;
+    if (!year || !month) return res.status(400).json({ status: 'error', message: 'year dan month wajib diisi' });
+
+    const dateFrom = new Date(year, month - 1, 1);
+    const dateTo = new Date(year, month, 0, 23, 59, 59);
+
+    // Pastikan akun Laba Periode Berjalan (3300) ada
+    let labaAcc = await prisma.chartOfAccounts.findUnique({ where: { code: '3300' } });
+    if (!labaAcc) {
+      labaAcc = await prisma.chartOfAccounts.create({
+        data: { code: '3300', name: 'Laba Periode Berjalan', type: 'Equity', description: 'Akumulasi laba/rugi periode berjalan' },
+      });
+    }
+
+    // Ambil semua akun Revenue & Expense
+    const [revenueAccounts, expenseAccounts] = await Promise.all([
+      prisma.chartOfAccounts.findMany({ where: { type: 'Revenue', active: true } }),
+      prisma.chartOfAccounts.findMany({ where: { type: 'Expense', active: true } }),
+    ]);
+
+    // Hitung saldo tiap akun pada periode ini
+    async function getBalance(accountId) {
+      const agg = await prisma.generalLedger.aggregate({
+        where: { accountId, date: { gte: dateFrom, lte: dateTo } },
+        _sum: { debit: true, credit: true },
+      });
+      return (agg._sum.credit || 0) - (agg._sum.debit || 0); // Revenue: credit normal
+    }
+    async function getExpenseBalance(accountId) {
+      const agg = await prisma.generalLedger.aggregate({
+        where: { accountId, date: { gte: dateFrom, lte: dateTo } },
+        _sum: { debit: true, credit: true },
+      });
+      return (agg._sum.debit || 0) - (agg._sum.credit || 0); // Expense: debit normal
+    }
+
+    const revenueLines = [];
+    let totalRevenue = 0;
+    for (const acc of revenueAccounts) {
+      const bal = await getBalance(acc.id);
+      if (bal > 0) {
+        revenueLines.push({ accountCode: acc.code, debit: bal, credit: 0, description: `Tutup akun ${acc.name}` });
+        totalRevenue += bal;
+      }
+    }
+
+    const expenseLines = [];
+    let totalExpense = 0;
+    for (const acc of expenseAccounts) {
+      const bal = await getExpenseBalance(acc.id);
+      if (bal > 0) {
+        expenseLines.push({ accountCode: acc.code, debit: 0, credit: bal, description: `Tutup akun ${acc.name}` });
+        totalExpense += bal;
+      }
+    }
+
+    const netProfit = totalRevenue - totalExpense;
+
+    if (revenueLines.length === 0 && expenseLines.length === 0) {
+      return res.status(400).json({ status: 'error', message: 'Tidak ada transaksi revenue/expense di periode ini' });
+    }
+
+    // Jurnal penutup:
+    // Debit semua revenue → nol-kan
+    // Kredit semua expense → nol-kan
+    // Selisih ke akun 3300 Laba Periode Berjalan
+    const journalLines = [
+      ...revenueLines,
+      ...expenseLines,
+    ];
+
+    if (netProfit > 0) {
+      // Laba: credit 3300
+      journalLines.push({ accountCode: '3300', debit: 0, credit: netProfit, description: 'Laba periode berjalan' });
+    } else if (netProfit < 0) {
+      // Rugi: debit 3300
+      journalLines.push({ accountCode: '3300', debit: Math.abs(netProfit), credit: 0, description: 'Rugi periode berjalan' });
+    }
+
+    const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    const journal = await createJournal({
+      date: dateTo.toISOString(),
+      description: `Jurnal Penutup ${monthNames[month - 1]} ${year}`,
+      type: 'auto',
+      reference: `TUTUP-${year}-${String(month).padStart(2, '0')}`,
+      referenceType: 'closing',
+      lines: journalLines,
+    });
+    await postJournal(journal.id);
+
+    res.json({
+      status: 'ok',
+      data: {
+        journal,
+        summary: { totalRevenue, totalExpense, netProfit, period: `${monthNames[month - 1]} ${year}` },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+// ============================================
+// SALDO AWAL (Opening Balance)
+// ============================================
+
+router.get('/opening-balance', async (req, res) => {
+  try {
+    const existing = await prisma.journal.findFirst({
+      where: { referenceType: 'opening' },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ status: 'ok', data: { exists: !!existing, journal: existing } });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
+router.post('/opening-balance', async (req, res) => {
+  try {
+    const { date: dateVal, entries, inventory } = req.body;
+    if (!dateVal) return res.status(400).json({ status: 'error', message: 'date wajib diisi' });
+    if (!entries || entries.length === 0) return res.status(400).json({ status: 'error', message: 'entries tidak boleh kosong' });
+
+    // Validasi balance
+    const totalDebit = entries.reduce((s, e) => s + (e.debit || 0), 0);
+    const totalCredit = entries.reduce((s, e) => s + (e.credit || 0), 0);
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Saldo tidak balance: Total Debit ${totalDebit.toFixed(2)} ≠ Total Kredit ${totalCredit.toFixed(2)}`,
+      });
+    }
+
+    // Buat jurnal pembuka
+    const journal = await createJournal({
+      date: dateVal,
+      description: 'Saldo Awal / Opening Balance',
+      type: 'manual',
+      reference: 'SALDO-AWAL',
+      referenceType: 'opening',
+      lines: entries.map((e) => ({
+        accountCode: e.accountCode,
+        debit: e.debit || 0,
+        credit: e.credit || 0,
+        description: e.description || 'Saldo awal',
+      })),
+    });
+    await postJournal(journal.id);
+
+    // Set stok awal inventory
+    const inventoryResults = [];
+    if (inventory && inventory.length > 0) {
+      for (const inv of inventory) {
+        if (!inv.itemId || inv.stock == null) continue;
+        const item = await prisma.item.findUnique({ where: { id: inv.itemId } });
+        if (!item) continue;
+        const diff = inv.stock - item.stock;
+        if (diff !== 0) {
+          await prisma.stockMovement.create({
+            data: {
+              itemId: inv.itemId,
+              type: 'adjustment',
+              quantity: diff,
+              reference: 'SALDO-AWAL',
+              referenceType: 'opening',
+              notes: 'Saldo awal inventory',
+            },
+          });
+          await prisma.item.update({
+            where: { id: inv.itemId },
+            data: { stock: inv.stock },
+          });
+          inventoryResults.push({ itemId: inv.itemId, name: item.name, oldStock: item.stock, newStock: inv.stock });
+        }
+      }
+    }
+
+    res.status(201).json({
+      status: 'ok',
+      data: { journal, inventoryUpdated: inventoryResults },
+    });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+});
+
 module.exports = router;
