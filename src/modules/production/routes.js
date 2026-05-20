@@ -255,51 +255,48 @@ router.put('/job-orders/:id/complete', async (req, res) => {
       });
     }
 
-    // Execute production
-    await prisma.$transaction(async (tx) => {
-      // Deduct each RM
-      for (const mat of jobOrder.materials) {
-        await tx.stockMovement.create({
-          data: {
-            itemId: mat.materialId,
-            type: 'out',
-            quantity: mat.requiredQty,
-            reference: jobOrder.jobOrderNo,
-            referenceType: 'production',
-            notes: `RM consumed for job order ${jobOrder.jobOrderNo}`,
-          },
-        });
-        await tx.item.update({
-          where: { id: mat.materialId },
-          data: { stock: { decrement: mat.requiredQty } },
-        });
-        await tx.jobOrderMaterial.update({
-          where: { id: mat.id },
-          data: { consumedQty: mat.requiredQty },
-        });
-      }
-
-      // Add FG stock
-      await tx.stockMovement.create({
+    // Execute production (sequential ops — compatible with PgBouncer)
+    for (const mat of jobOrder.materials) {
+      await prisma.stockMovement.create({
         data: {
-          itemId: jobOrder.finishedGoodId,
-          type: 'in',
-          quantity: jobOrder.plannedQty,
+          itemId: mat.materialId,
+          type: 'out',
+          quantity: mat.requiredQty,
           reference: jobOrder.jobOrderNo,
           referenceType: 'production',
-          notes: `FG produced from job order ${jobOrder.jobOrderNo}`,
+          notes: `RM consumed for job order ${jobOrder.jobOrderNo}`,
         },
       });
-      await tx.item.update({
-        where: { id: jobOrder.finishedGoodId },
-        data: { stock: { increment: jobOrder.plannedQty } },
+      await prisma.item.update({
+        where: { id: mat.materialId },
+        data: { stock: { decrement: mat.requiredQty } },
       });
+      await prisma.jobOrderMaterial.update({
+        where: { id: mat.id },
+        data: { consumedQty: mat.requiredQty },
+      });
+    }
 
-      // Update job order status
-      await tx.jobOrder.update({
-        where: { id: req.params.id },
-        data: { status: 'completed', completedQty: jobOrder.plannedQty, completedDate: new Date() },
-      });
+    // Add FG stock
+    await prisma.stockMovement.create({
+      data: {
+        itemId: jobOrder.finishedGoodId,
+        type: 'in',
+        quantity: jobOrder.plannedQty,
+        reference: jobOrder.jobOrderNo,
+        referenceType: 'production',
+        notes: `FG produced from job order ${jobOrder.jobOrderNo}`,
+      },
+    });
+    await prisma.item.update({
+      where: { id: jobOrder.finishedGoodId },
+      data: { stock: { increment: jobOrder.plannedQty } },
+    });
+
+    // Update job order status
+    await prisma.jobOrder.update({
+      where: { id: req.params.id },
+      data: { status: 'completed', completedQty: jobOrder.plannedQty, completedDate: new Date() },
     });
 
     // Journal: Debit FG Inventory (1300), Credit RM Inventory (1300)
