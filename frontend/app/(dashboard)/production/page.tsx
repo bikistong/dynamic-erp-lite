@@ -28,9 +28,14 @@ export default function ProductionPage() {
 
   async function load() {
     setLoading(true);
-    const res = await api.get('/production/job-orders', { params: { limit: 50, status: statusFilter || undefined } });
-    setJobOrders(res.data.data);
-    setLoading(false);
+    try {
+      const res = await api.get('/production/job-orders', { params: { limit: 50, status: statusFilter || undefined } });
+      setJobOrders(res.data.data || []);
+    } catch {
+      setJobOrders([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, [statusFilter]);
