@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
   BookOpen, Factory, LogOut, Settings, Menu, X,
-  Sun, Moon, Zap, HelpCircle,
+  Sun, Moon, Zap, HelpCircle, Layers,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useTheme } from '@/components/ThemeProvider';
@@ -15,6 +15,7 @@ const navItems = [
   { href: '/purchasing', label: 'Purchasing', icon: ShoppingCart },
   { href: '/sales', label: 'Sales', icon: FileText },
   { href: '/production', label: 'Production', icon: Factory },
+  { href: '/bom', label: 'Bill of Materials', icon: Layers },
   { href: '/accounting', label: 'Accounting', icon: BookOpen },
 ];
 
