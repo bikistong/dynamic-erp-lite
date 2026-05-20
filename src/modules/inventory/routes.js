@@ -154,19 +154,16 @@ router.post(
   async (req, res) => {
     try {
       const { itemId, quantity, notes } = req.body;
-      const result = await prisma.$transaction(async (tx) => {
-        const item = await tx.item.findUnique({ where: { id: itemId } });
-        if (!item) throw new Error('Item not found');
-        const movement = await tx.stockMovement.create({
-          data: { itemId, type: 'adjustment', quantity, referenceType: 'adjustment', notes },
-        });
-        const updatedItem = await tx.item.update({
-          where: { id: itemId },
-          data: { stock: { increment: quantity } },
-        });
-        return { movement, item: updatedItem };
+      const item = await prisma.item.findUnique({ where: { id: itemId } });
+      if (!item) return res.status(404).json({ status: 'error', message: 'Item not found' });
+      const movement = await prisma.stockMovement.create({
+        data: { itemId, type: 'adjustment', quantity, referenceType: 'adjustment', notes },
       });
-      res.status(201).json({ status: 'ok', data: result });
+      const updatedItem = await prisma.item.update({
+        where: { id: itemId },
+        data: { stock: { increment: quantity } },
+      });
+      res.status(201).json({ status: 'ok', data: { movement, item: updatedItem } });
     } catch (error) {
       if (error.message === 'Item not found') return res.status(404).json({ status: 'error', message: error.message });
       res.status(500).json({ status: 'error', message: error.message });

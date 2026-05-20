@@ -171,28 +171,26 @@ router.post(
   async (req, res) => {
     try {
       const { supplierId, date: dateVal, dueDate, notes, lines } = req.body;
-      const result = await prisma.$transaction(async (tx) => {
-        const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
-        return tx.purchaseOrder.create({
-          data: {
-            poNumber: generateTransactionNo('PO'),
-            supplierId,
-            date: new Date(dateVal),
-            dueDate: dueDate ? new Date(dueDate) : null,
-            status: 'draft',
-            totalAmount,
-            notes,
-            lines: {
-              create: lines.map((l) => ({
-                itemId: l.itemId,
-                quantity: l.quantity,
-                unitPrice: l.unitPrice,
-                totalAmount: l.quantity * l.unitPrice,
-              })),
-            },
+      const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+      const result = await prisma.purchaseOrder.create({
+        data: {
+          poNumber: generateTransactionNo('PO'),
+          supplierId,
+          date: new Date(dateVal),
+          dueDate: dueDate ? new Date(dueDate) : null,
+          status: 'draft',
+          totalAmount,
+          notes,
+          lines: {
+            create: lines.map((l) => ({
+              itemId: l.itemId,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              totalAmount: l.quantity * l.unitPrice,
+            })),
           },
-          include: { lines: { include: { item: { select: { name: true, uom: true } } } }, supplier: { select: { name: true } } },
-        });
+        },
+        include: { lines: { include: { item: { select: { name: true, uom: true } } } }, supplier: { select: { name: true } } },
       });
       res.status(201).json({ status: 'ok', data: result });
     } catch (error) {
@@ -283,37 +281,34 @@ router.post(
   async (req, res) => {
     try {
       const { poId, date: dateVal, notes, lines } = req.body;
-      const result = await prisma.$transaction(async (tx) => {
-        const po = await tx.purchaseOrder.findUnique({
-          where: { id: poId },
-          include: { supplier: true, lines: { include: { item: true } } },
-        });
-        if (!po) throw new Error('Purchase order not found');
-        if (!['submitted', 'received'].includes(po.status)) {
-          throw new Error('Purchase order must be in submitted status to receive');
-        }
-
-        const receiptNo = generateTransactionNo('GRN');
-        const receipt = await tx.purchaseReceipt.create({
-          data: { receiptNumber: receiptNo, poNumber: po.poNumber, date: new Date(dateVal), status: 'posted', notes },
-        });
-
-        let totalReceived = 0;
-        for (const line of lines) {
-          const poLine = po.lines.find((l) => l.itemId === line.itemId);
-          if (!poLine) throw new Error(`Item ${line.itemId} is not in purchase order`);
-
-          await tx.stockMovement.create({
-            data: { itemId: line.itemId, type: 'in', quantity: line.quantity, reference: receiptNo, referenceType: 'po', notes: `Received from PO ${po.poNumber}`, receiptId: receipt.id },
-          });
-          await tx.item.update({ where: { id: line.itemId }, data: { stock: { increment: line.quantity } } });
-          await tx.purchaseOrderLine.update({ where: { id: poLine.id }, data: { receivedQty: { increment: line.quantity } } });
-          totalReceived += line.quantity * poLine.unitPrice;
-        }
-
-        await tx.purchaseOrder.update({ where: { id: poId }, data: { status: 'received' } });
-        return { receipt, totalReceived, poNumber: po.poNumber };
+      const po = await prisma.purchaseOrder.findUnique({
+        where: { id: poId },
+        include: { supplier: true, lines: { include: { item: true } } },
       });
+      if (!po) return res.status(404).json({ status: 'error', message: 'Purchase order not found' });
+      if (!['submitted', 'received'].includes(po.status)) {
+        return res.status(400).json({ status: 'error', message: 'Purchase order must be in submitted status to receive' });
+      }
+
+      const receiptNo = generateTransactionNo('GRN');
+      const receipt = await prisma.purchaseReceipt.create({
+        data: { receiptNumber: receiptNo, poNumber: po.poNumber, date: new Date(dateVal), status: 'posted', notes },
+      });
+
+      let totalReceived = 0;
+      for (const line of lines) {
+        const poLine = po.lines.find((l) => l.itemId === line.itemId);
+        if (!poLine) throw new Error(`Item ${line.itemId} is not in purchase order`);
+        await prisma.stockMovement.create({
+          data: { itemId: line.itemId, type: 'in', quantity: line.quantity, reference: receiptNo, referenceType: 'po', notes: `Received from PO ${po.poNumber}`, receiptId: receipt.id },
+        });
+        await prisma.item.update({ where: { id: line.itemId }, data: { stock: { increment: line.quantity } } });
+        await prisma.purchaseOrderLine.update({ where: { id: poLine.id }, data: { receivedQty: { increment: line.quantity } } });
+        totalReceived += line.quantity * poLine.unitPrice;
+      }
+
+      await prisma.purchaseOrder.update({ where: { id: poId }, data: { status: 'received' } });
+      const result = { receipt, totalReceived, poNumber: po.poNumber };
 
       try {
         const journal = await createJournal({
