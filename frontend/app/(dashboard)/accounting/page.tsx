@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import api from '@/lib/api';
-import { BookOpen, BarChart2, Scale, ListChecks, BookX, Database } from 'lucide-react';
+import { BookOpen, BarChart2, Scale, ListChecks, BookX, Database, FileText } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Journal { id: string; journalNo: string; type: string; status: string; description: string; date: string; reference?: string; }
@@ -28,7 +28,8 @@ const statusColors: Record<string, string> = {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function AccountingPage() {
-  const [tab, setTab] = useState<'jurnal' | 'pl' | 'neraca' | 'trial' | 'tutup' | 'saldo'>('jurnal');
+  const router = require('next/navigation').useRouter();
+  const [tab, setTab] = useState<'jurnal' | 'ledger' | 'pl' | 'neraca' | 'trial' | 'tutup' | 'saldo'>('jurnal');
 
   return (
     <div className="p-6 md:p-8 space-y-6">
@@ -40,7 +41,8 @@ export default function AccountingPage() {
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit flex-wrap">
         {([
-          { key: 'jurnal', label: 'Jurnal',        icon: BookOpen },
+          { key: 'jurnal', label: 'Jurnal',         icon: BookOpen },
+          { key: 'ledger', label: 'General Ledger', icon: FileText },
           { key: 'pl',     label: 'Laba Rugi',     icon: BarChart2 },
           { key: 'neraca', label: 'Neraca',         icon: Scale },
           { key: 'trial',  label: 'Neraca Saldo',  icon: ListChecks },
@@ -56,7 +58,8 @@ export default function AccountingPage() {
         ))}
       </div>
 
-      {tab === 'jurnal' && <JurnalTab />}
+      {tab === 'jurnal' && <JurnalTab />
+      {tab === 'ledger' && <LedgerTab router={router} />}
       {tab === 'pl'     && <PLTab />}
       {tab === 'neraca' && <NeracaTab />}
       {tab === 'trial'  && <TrialTab />}
@@ -641,4 +644,12 @@ function SaldoAwalTab() {
       </button>
     </div>
   );
+}
+
+// ── Ledger Tab (redirect to dedicated page) ──────────────────────────────────
+function LedgerTab({ router }: { router: any }) {
+  useEffect(() => {
+    router.push('/accounting/ledger');
+  }, [router]);
+  return null;
 }
