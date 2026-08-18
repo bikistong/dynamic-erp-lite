@@ -223,14 +223,12 @@ export default function PurchasingPage() {
           >
             <Plus size={16} />Buat PO
           </button>
-          {tab === 'grn' && (
-            <button
-              onClick={openGrnModal}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
-            >
-              <PackageCheck size={16} />Buat GRN
-            </button>
-          )}
+          <button
+            onClick={() => router.push('/purchasing/grn')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <PackageCheck size={16} />Buat GRN
+          </button>
         </div>
       </div>
 
