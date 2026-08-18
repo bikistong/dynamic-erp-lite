@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Plus, X, Trash2, ShoppingCart, PackageCheck, Send, Ban } from 'lucide-react';
 
@@ -32,6 +33,7 @@ const statusColors: Record<string, string> = {
 };
 
 export default function PurchasingPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<'po' | 'grn'>('po');
 
   // PO state
@@ -214,12 +216,22 @@ export default function PurchasingPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Purchasing</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Purchase Order & Penerimaan Barang</p>
         </div>
-        <button
-          onClick={tab === 'po' ? openPoModal : openGrnModal}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
-        >
-          <Plus size={16} />{tab === 'po' ? 'Buat PO' : 'Buat GRN'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push('/purchasing/create-po')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <Plus size={16} />Buat PO
+          </button>
+          {tab === 'grn' && (
+            <button
+              onClick={openGrnModal}
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
+            >
+              <PackageCheck size={16} />Buat GRN
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
